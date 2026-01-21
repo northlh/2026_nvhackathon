@@ -11,3 +11,7 @@ Repository for team COWY Wildfire Meteorlogical Data at the NSF ASCEND and NVIDI
 
 # Other tips
 1. To create a branch, cd into the repo, then: `git checkout -b new_branch_name`
+
+
+# running current environment
+`conda activate /cluster/medbow/project/cowy-nvhackathon/software/cowy-wildfire-envs/cowy-wildfire-env` 

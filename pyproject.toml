@@ -1,3 +1,7 @@
+[project]
+name="2026_nvhackathon"
+dynamic = ["version"]
+
 dependencies = [
   "typer>=0.12",
   "xarray",

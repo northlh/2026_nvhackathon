@@ -1,0 +1,39 @@
+dependencies = [
+  "typer>=0.12",
+  "xarray",
+  "numpy",
+  "pandas"
+]
+
+
+[project.optional-dependencies]
+
+geo = [
+  "rasterio",
+  "rioxarray",
+  "pyproj",
+  "shapely",
+  "geopandas",
+  "netcdf4",
+  "pykrig"
+]
+
+ml = [
+  "scikit-learn",
+  "torch",
+  "lightning"
+]
+
+viz = [
+  "matplotlib",
+  "plotly"
+]
+
+notebooks = [
+  "ipykernel",
+  "nbformat"
+]
+
+distributed = [
+  "dask"
+]

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """
 Prepare data for CoWy Point Correction:
@@ -9,8 +8,8 @@ Prepare data for CoWy Point Correction:
 
 Usage:
     python scripts/prepare_data.py configs/ifs_v1.yaml \
-        --terrain-src /projects/cowy/datasets/terrain_data/terrain_990m/ \
-        --ifs-src /scratch/kylabazlen/herbie/ifs/
+        --terrain-src /project/cowy-nvhackathon/cowy-wildfire/data/terrain_data/terrain_990m \
+        --ifs-src /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/
 """
 
 import argparse

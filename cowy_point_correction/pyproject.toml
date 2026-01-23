@@ -1,0 +1,18 @@
+
+[project]
+name = "cowy-point-correction"
+version = "0.1.0"
+description = "Point-based bias correction for NWP wind forecasts"
+requires-python = ">=3.10"
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "xarray",
+    "scipy",
+    "scikit-learn",
+    "torch",
+    "lightning",
+    "pyyaml",
+    "matplotlib",
+]

@@ -279,3 +279,5 @@ class CoWyPointDataset(Dataset):
             return self[(idx + 1) % len(self)]
 
         return x, y
+
+# EOF

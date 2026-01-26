@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cowy-point-correction"
+version = "0.1.0"
+description = "Point-based bias correction for NWP wind forecasts"
+requires-python = ">=3.10"
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "xarray",
+    "scipy",
+    "scikit-learn",
+    "torch",
+    "lightning",
+    "pyyaml",
+    "matplotlib",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["configs*", "configs.*"]

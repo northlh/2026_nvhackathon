@@ -1,0 +1,150 @@
+# ============================================================
+# Experiment metadata
+# ============================================================
+experiment:
+  name: ifs_point_correction_v1
+  description: >
+    Point-based IFS/HRRR wind speed bias correction using MADIS
+    observations and terrain covariates.
+  seed: 42
+
+
+# ============================================================
+# Paths (NO hard-coding in code)
+# ============================================================
+paths:
+  # Raw datasets
+  madis: /project/cowy-nvhackathon/cowy-wildfire/data/observations/cowy_madis_metar_mesonet_2024.nc
+
+  # These should be synced to $TMPDIR by prepare_data.py
+  terrain_dir: ${TMPDIR}/terrain
+  ifs_dir: ${TMPDIR}/ifs
+
+  # Output root (Lightning logs, checkpoints, eval results)
+  output_root: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/lightning_logs_v1
+
+  # Cached metadata
+  obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/saved_data/obs_lookup.csv
+
+  # Normalization
+  mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/saved_data/mean_v1.npy
+  std_file: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/saved_data/sd_v1.npy
+
+
+# ============================================================
+# Data preparation & filtering
+# ============================================================
+data:
+  # Nearest-neighbor matching threshold (degrees)
+  dist_lim: 0.25
+
+  # Spatial blocking (checkerboard)
+  spatial_block:
+    block_size: 2.0     # degrees
+    n_folds: 2
+
+  # Validation split (after spatial blocking)
+  val_fraction: 0.20
+  shuffle_timesteps: true
+
+  # Class imbalance handling
+  balance_classes: true
+  balance_thresholds: [5, 11]   # wind speed bins (m/s)
+
+  # Data loader
+  num_workers: 0      # MUST BE 0 (per your dataset design)
+  pin_memory: true
+
+
+# ============================================================
+# Feature engineering
+# ============================================================
+features:
+  # HRRR / IFS variables pulled directly
+  hrrr:
+    - u10
+    - v10
+    - ws_10
+    - t2m
+    - sp
+    - t_500hPa
+    - elr
+
+  # Terrain variables (ALL 2D vars will be used)
+  topo: all
+
+  # Time encodings (future-proof)
+  time_encoding:
+    enabled: false
+    include:
+      - hour
+      - dayofyear
+
+
+# ============================================================
+# Model architecture
+# ============================================================
+model:
+  type: point_mlp
+  n_filters: 640
+  dropout: 0.25
+
+  # Regularization
+  l1_lambda: 1.0e-6
+
+
+# ============================================================
+# Training configuration
+# ============================================================
+training:
+  batch_size: 2500
+  max_epochs: 55
+
+  optimizer:
+    type: AdamW
+    learning_rate: 1.0e-4
+    eps: 1.0e-5
+    weight_decay: 1.0e-4
+
+  precision: 32
+  gradient_clip_val: null
+
+  # Early stopping (deliberately loose, matching notebook)
+  early_stopping:
+    enabled: true
+    monitor: validation_loss
+    patience: 500
+    min_delta: 0.0
+
+
+# ============================================================
+# Logging & checkpoints
+# ============================================================
+logging:
+  log_every_n_steps: 10
+
+  tensorboard:
+    enabled: true
+
+  csv:
+    enabled: true
+
+  checkpoint:
+    monitor: validation_loss
+    mode: min
+    save_top_k: 1
+
+
+# ============================================================
+# Evaluation
+# ============================================================
+evaluation:
+  bins: [5, 10]
+  save_predictions: true
+  save_obs_lookup: true
+
+  plots:
+    map:
+      enabled: true
+      coastline_resolution: 10m
+

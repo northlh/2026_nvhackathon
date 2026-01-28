@@ -85,7 +85,8 @@ class CoWyDataModule(L.LightningDataModule):
         ifs_dir = _expand_env(paths["ifs_dir"])
 
         topo_fps = sorted(glob.glob(os.path.join(terrain_dir, "*_reprojected_wgs84_cowy_990m.nc")))
-        hrrr_fps = sorted(glob.glob(os.path.join(ifs_dir, "*.nc")))
+        ### change to subset
+        hrrr_fps = sorted(glob.glob(os.path.join(ifs_dir, "*.nc")))[:20]
 
         base_ds = CoWyPointDataset(
             madis_fp=madis_fp,

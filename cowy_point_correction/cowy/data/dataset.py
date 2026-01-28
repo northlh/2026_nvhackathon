@@ -31,7 +31,7 @@ class CoWyPointDataset(Dataset):
         self.shuffle = shuffle
 
         # --- MADIS ---
-        self.dset_madis = xr.open_dataset(madis_fp, engine="h5netcdf")[["windspeed_10m"]]
+        self.dset_madis = xr.open_dataset(madis_fp, engine="netcdf4")[["windspeed_10m"]]
         self.vars_madis = list(self.dset_madis.data_vars)
         self.lat_obs = self.dset_madis.latitude.values
         self.lon_obs = self.dset_madis.longitude.values

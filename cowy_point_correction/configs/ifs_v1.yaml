@@ -17,18 +17,18 @@ paths:
   madis: /project/cowy-nvhackathon/cowy-wildfire/data/observations/cowy_madis_metar_mesonet_2024.nc
 
   # These should be synced to $TMPDIR by prepare_data.py
-  terrain_dir: ${TMPDIR}/terrain
-  ifs_dir: ${TMPDIR}/ifs
+  terrain_dir: /project/cowy-nvhackathon/cowy-wildfire/data/terrain_data/terrain_990m
+  ifs_dir: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs
 
   # Output root (Lightning logs, checkpoints, eval results)
-  output_root: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/lightning_logs_v1
+  output_root: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/lightning_logs_v1
 
   # Cached metadata
-  obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/saved_data/obs_lookup.csv
+  obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/obs_lookup.csv
 
   # Normalization
-  mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/saved_data/mean_v1.npy
-  std_file: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/saved_data/sd_v1.npy
+  mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/mean_v1.npy
+  std_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/sd_v1.npy
 
 
 # ============================================================

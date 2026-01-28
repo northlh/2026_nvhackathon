@@ -15,3 +15,9 @@ python scripts/prepare_data.py configs/ifs_v1.yaml \
   --ifs-src /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/
 python scripts/train.py configs/ifs_v1.yaml
 python scripts/evaluate.py configs/ifs_v1.yaml
+```
+# to change which subset of data go to traning/datamodule.py change everything in the bracket
+```python
+ ### change to subset
+        hrrr_fps = sorted(glob.glob(os.path.join(ifs_dir, "*.nc")))[:20]
+```

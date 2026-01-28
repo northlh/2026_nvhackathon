@@ -1,29 +1,22 @@
-
-# scripts/train.py
 import os
 import json
 import yaml
+import warnings
+
+# silence the xarray timedelta warning
+warnings.filterwarnings(
+    "ignore",
+    message=".*decode the variable 'step' into a timedelta64 dtype.*"
+)
+
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
+from lightning.pytorch.callbacks import RichProgressBar
 
 from cowy.training.datamodule import CoWyDataModule
 from cowy.training.callbacks import build_callbacks
 from cowy.models.point_model import PointCorrectionModel
 
-
-from lightning.pytorch.callbacks import TQDMProgressBar
-
-callbacks = build_callbacks(cfg)
-callbacks.append(TQDMProgressBar(refresh_rate=1))
-
-from lightning.pytorch.callbacks import RichProgressBar
-
-trainer = L.Trainer(
-    max_epochs=cfg["training"]["max_epochs"],
-    accelerator="auto",
-    logger=[tb, csv],
-    callbacks=[RichProgressBar()],
-)
 
 def expand(s):
     return os.path.expandvars(os.path.expanduser(s))
@@ -44,7 +37,9 @@ def main(cfg):
     tb = TensorBoardLogger(root, name=name)
     csv = CSVLogger(root, name=name, version=tb.version)
 
+    # build your callbacks and add the rich progress bar
     callbacks = build_callbacks(cfg)
+    callbacks.append(RichProgressBar())
 
     trainer = L.Trainer(
         max_epochs=cfg["training"]["max_epochs"],

@@ -17,8 +17,8 @@ paths:
   madis: /project/cowy-nvhackathon/cowy-wildfire/data/observations/cowy_madis_metar_mesonet_2024.nc
 
   # These should be synced to $TMPDIR by prepare_data.py
-  terrain_dir: ${TMPDIR}/terrain
-  ifs_dir: ${TMPDIR}/ifs
+  terrain_dir: /project/cowy-nvhackathon/cowy-wildfire/data/terrain_data/terrain_990m
+  ifs_dir: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs
 
   # Output root (Lightning logs, checkpoints, eval results)
   output_root: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/lightning_logs_v1

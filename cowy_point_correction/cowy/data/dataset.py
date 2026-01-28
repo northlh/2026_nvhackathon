@@ -31,7 +31,8 @@ def add_forecast_metadata(ds: xr.Dataset) -> xr.Dataset:
         else:
             # if already numeric, cast to float32
             lead_time_hrs = ds["step"].astype("float32")
-        ds = ds.assign_coords(lead_time_hrs=("step", lead_time_hrs))
+        ds = ds.assign_coords(lead_time_hrs=("step", lead_time_hrs.data))
+
 
     # init_z along 'time'
     if "time" in ds.coords:

@@ -11,6 +11,20 @@ from cowy.training.callbacks import build_callbacks
 from cowy.models.point_model import PointCorrectionModel
 
 
+from lightning.pytorch.callbacks import TQDMProgressBar
+
+callbacks = build_callbacks(cfg)
+callbacks.append(TQDMProgressBar(refresh_rate=1))
+
+from lightning.pytorch.callbacks import RichProgressBar
+
+trainer = L.Trainer(
+    max_epochs=cfg["training"]["max_epochs"],
+    accelerator="auto",
+    logger=[tb, csv],
+    callbacks=[RichProgressBar()],
+)
+
 def expand(s):
     return os.path.expandvars(os.path.expanduser(s))
 

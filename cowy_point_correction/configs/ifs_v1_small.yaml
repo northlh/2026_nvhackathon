@@ -16,7 +16,7 @@ paths:
   # Raw datasets
   madis: /project/cowy-nvhackathon/cowy-wildfire/data/observations/cowy_madis_metar_mesonet_2024.nc
 
-  # These should be synced to $TMPDIR by prepare_data.py
+  # file paths for data.
   terrain_dir: /project/cowy-nvhackathon/cowy-wildfire/data/terrain_data/terrain_990m
   ifs_dir: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs_small
 

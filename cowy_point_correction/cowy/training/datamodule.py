@@ -1,12 +1,16 @@
+# datamodule.py
+
 import os
 import glob
 import copy
+import random
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import lightning as L
+import torch
 from torch.utils.data import DataLoader
 
 from cowy.data.dataset import CoWyPointDataset
@@ -14,7 +18,18 @@ from cowy.data.spatial import spatial_blocking
 
 
 def _expand_env(s: str) -> str:
+    """Expand environment variables and ~ in paths."""
     return os.path.expandvars(os.path.expanduser(s))
+
+
+def _seed_worker(worker_id: int):
+    """
+    Seed numpy & python's RNG per worker for reproducibility.
+    Lightning sets a base seed per process; we derive a worker seed from it.
+    """
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def _balance_train_classes(train_ds, thresholds=[5, 11], seed: int = 42):
@@ -68,18 +83,86 @@ def _balance_train_classes(train_ds, thresholds=[5, 11], seed: int = 42):
 
 
 class CoWyDataModule(L.LightningDataModule):
+    """
+    Lightning DataModule with fully config-driven DataLoader options suitable for GPU clusters.
+
+    YAML keys under `data:` that this module reads:
+      - num_workers: int (default 0)
+      - pin_memory: bool (default True)
+      - persistent_workers: bool (default False; effective only if num_workers > 0)
+      - prefetch_factor: int|None (effective only if num_workers > 0)
+      - drop_last: bool (default False)
+      - pin_memory_device: str|None (e.g., "cuda", only for recent PyTorch versions)
+      - multiprocessing_context: str|None ("fork", "spawn", "forkserver") — optional
+
+    Notes:
+      * We keep shuffle=False in DataLoaders because your dataset handles timestep-aware shuffling internally.
+      * Batch size is sourced from cfg["training"]["batch_size"].
+    """
+
     def __init__(self, cfg: dict):
         super().__init__()
         self.cfg = cfg
 
-        self.batch_size = cfg["training"]["batch_size"]
-        self.num_workers = cfg["data"].get("num_workers", 0)
-        self.pin_memory = cfg["data"].get("pin_memory", True)
-        self.val_fraction = cfg["data"]["val_fraction"]
+        # Keep batch size in the training section (as in your setup)
+        self.batch_size = int(cfg["training"]["batch_size"])
+
+        # DataLoader config (with safe defaults)
+        data_cfg = cfg.get("data", {})
+        self.dl_num_workers = int(data_cfg.get("num_workers", 0))
+        self.dl_pin_memory = bool(data_cfg.get("pin_memory", True))
+        self.dl_persistent_workers = bool(data_cfg.get("persistent_workers", False))
+        self.dl_prefetch_factor = data_cfg.get("prefetch_factor", None)
+        self.dl_drop_last = bool(data_cfg.get("drop_last", False))
+        self.dl_pin_memory_device = data_cfg.get("pin_memory_device", None)
+        self.dl_mp_context = data_cfg.get("multiprocessing_context", None)
+
+        self.val_fraction = float(data_cfg["val_fraction"])
 
         self.train_ds = None
         self.val_ds = None
         self.test_ds = None
+
+        # Optional: generator for reproducible sampling (works with worker_init_fn)
+        self._dl_generator = torch.Generator()
+        seed = int(cfg["experiment"]["seed"])
+        self._dl_generator.manual_seed(seed)
+
+    def _build_loader_kwargs(self, split: str):
+        """
+        Build DataLoader kwargs from config with PyTorch-safe guards.
+        - shuffle is False because dataset handles timestep-aware shuffling.
+        - persistent_workers and prefetch_factor require num_workers > 0.
+        """
+        kwargs = dict(
+            batch_size=self.batch_size,
+            shuffle=False,  # dataset handles internal shuffling
+            num_workers=self.dl_num_workers,
+            pin_memory=self.dl_pin_memory,
+            drop_last=self.dl_drop_last,
+            worker_init_fn=_seed_worker,
+            generator=self._dl_generator,
+        )
+
+        # Only set persistent_workers if num_workers > 0
+        if self.dl_num_workers > 0 and self.dl_persistent_workers:
+            kwargs["persistent_workers"] = True
+
+        # Only set prefetch_factor if num_workers > 0 (PyTorch restriction)
+        if self.dl_num_workers > 0 and self.dl_prefetch_factor is not None:
+            kwargs["prefetch_factor"] = int(self.dl_prefetch_factor)
+
+        # Optional pin_memory_device (supported in newer PyTorch); safe-guarded
+        if self.dl_pin_memory and self.dl_pin_memory_device:
+            kwargs["pin_memory_device"] = self.dl_pin_memory_device
+
+        # Optional multiprocessing context if provided (use only if needed)
+        if self.dl_mp_context:
+            kwargs["multiprocessing_context"] = self.dl_mp_context
+
+        # Split-specific hooks could go here, if you ever need them
+        # if split == "train": ...
+        return kwargs
 
     def setup(self, stage: Optional[str] = None):
         paths = self.cfg["paths"]
@@ -124,7 +207,6 @@ class CoWyDataModule(L.LightningDataModule):
         print(f"Train (pre val split): {n_train_full:,} rows | Test: {n_test:,} rows")
 
         # --- Split train_full into train/val using stable keys, not positions ---
-        # We still choose random positions, but translate them to keys and merge.
         idx = np.arange(n_train_full)
         train_idx, val_idx = train_test_split(
             idx, test_size=self.val_fraction, random_state=seed
@@ -132,7 +214,6 @@ class CoWyDataModule(L.LightningDataModule):
 
         ref_df = train_full_ds.obs_lookup.reset_index(drop=True)
         # Keys that uniquely tie an observation to MADIS+HRRR cell at a given time
-        # (timestamp + idx_obs are sufficient given how obs_lookup is built)
         keys_train = ref_df.loc[train_idx, ["timestamp", "idx_obs"]].drop_duplicates()
         keys_val = ref_df.loc[val_idx, ["timestamp", "idx_obs"]].drop_duplicates()
 
@@ -167,29 +248,31 @@ class CoWyDataModule(L.LightningDataModule):
         self.val_ds = val_ds
         self.test_ds = test_ds
 
+        # Informative print for loader config
+        print(
+            "DataLoader config → "
+            f"num_workers={self.dl_num_workers}, pin_memory={self.dl_pin_memory}, "
+            f"persistent_workers={bool(self.dl_num_workers > 0 and self.dl_persistent_workers)}, "
+            f"prefetch_factor={self.dl_prefetch_factor if self.dl_num_workers > 0 else None}, "
+            f"drop_last={self.dl_drop_last}, "
+            f"pin_memory_device={self.dl_pin_memory_device}, "
+            f"multiprocessing_context={self.dl_mp_context}"
+        )
+
     def train_dataloader(self):
         return DataLoader(
             self.train_ds,
-            batch_size=self.batch_size,
-            shuffle=False,  # shuffle handled inside dataset (timestep-aware)
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
+            **self._build_loader_kwargs(split="train"),
         )
 
     def val_dataloader(self):
         return DataLoader(
             self.val_ds,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
+            **self._build_loader_kwargs(split="val"),
         )
 
     def test_dataloader(self):
         return DataLoader(
             self.test_ds,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
+            **self._build_loader_kwargs(split="test"),
         )

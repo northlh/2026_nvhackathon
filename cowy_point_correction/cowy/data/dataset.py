@@ -1,4 +1,3 @@
-
 # cowy/data/dataset.py
 import os
 import copy
@@ -15,56 +14,66 @@ from cowy.physics.lapse_rate import compute_elr
 def add_forecast_metadata(ds: xr.Dataset) -> xr.Dataset:
     """
     Add forecast metadata to an HRRR/IFS xarray Dataset:
-      - lead_time_hrs: derived from 'step' (as coordinate aligned to 'step')
-      - init_z: 1.0 if init hour == 12Z else 0.0, aligned to 'time'
-    Notes:
-      * This function is safe if 'step' or 'time' are absent.
-      * If files contain multiple 'time' entries, you may want to align or select
-        a specific index before caching/stacking downstream.
+      - lead_time_hrs: derived from 'step' (scalar if step is scalar, else coord along 'step')
+      - init_z: 1.0 if init hour == 12Z else 0.0 (scalar if time is scalar, else vector along 'time')
     """
     ds = ds.copy()
 
-    # lead_time_hrs along 'step'
+    # --- lead_time_hrs from 'step' ---
     if "step" in ds.coords:
-        if np.issubdtype(ds["step"].dtype, np.timedelta64):
-            lead_time_hrs = (ds["step"] / np.timedelta64(1, "h")).astype("float32")
+        step = ds["step"]
+
+        # Normalize to hours (float32), regardless of representation
+        if np.issubdtype(step.dtype, np.timedelta64):
+            step_hrs = (step / np.timedelta64(1, "h")).astype("float32")
         else:
-            # if already numeric, cast to float32
-            lead_time_hrs = ds["step"].astype("float32")
-        ds = ds.assign_coords(lead_time_hrs=("step", lead_time_hrs.data))
+            units = str(step.attrs.get("units", "")).lower()
+            if "hour" in units or "hr" in units:
+                step_hrs = step.astype("float32")
+            elif "second" in units or units == "s":
+                step_hrs = (step.astype("float32") / 3600.0)
+            else:
+                step_hrs = step.astype("float32")
 
+        # Scalar vs 1-D step
+        if step.ndim == 0:
+            ds = ds.assign_coords(lead_time_hrs=float(step_hrs.values))
+        else:
+            ds = ds.assign_coords(lead_time_hrs=("step", np.asarray(step_hrs.values)))
 
-    # init_z along 'time'
+    # --- init_z along 'time' (or scalar if 'time' is scalar) ---
     if "time" in ds.coords:
-        times = pd.to_datetime(ds["time"].values)
-        init_z = np.array([(t.hour == 12) for t in times], dtype="float32")
-        ds["init_z"] = xr.DataArray(init_z, dims=["time"])
+        time_da = ds["time"]
+        if time_da.ndim == 0:
+            t = pd.to_datetime(time_da.values)
+            init_z_val = np.float32(t.hour == 12)
+            ds["init_z"] = xr.DataArray(init_z_val)
+        else:
+            try:
+                init_z = (time_da.dt.hour == 12).astype("float32")
+            except Exception:
+                times = pd.to_datetime(time_da.values)
+                init_z = np.array([(t.hour == 12) for t in times], dtype="float32")
+            ds["init_z"] = xr.DataArray(init_z, dims=["time"])
 
     return ds
 
 
 def add_derived_hrrr_variables(ds: xr.Dataset) -> xr.Dataset:
     """
-    Add derived HRRR/IFS variables that are used as features:
+    Add derived HRRR/IFS variables used as features:
       - ws_10m = sqrt(u10^2 + v10^2)
       - elr via compute_elr(ds)
-    This function assumes compute_elr(ds) returns an xarray.DataArray.
     """
     ds = ds.copy()
 
-    # 10 m wind speed
     if {"u10", "v10"}.issubset(ds.data_vars):
         ds["ws_10m"] = np.sqrt(ds["u10"] ** 2 + ds["v10"] ** 2)
 
-    # Environmental lapse rate (compute_elr determines inputs internally)
-    # Ensure compute_elr returns DataArray with broadcastable dims
     try:
         elr_da = compute_elr(ds)
         ds["elr"] = elr_da
-    except Exception as e:
-        # Optional: log or raise depending on your preference
-        # For robustness, we don't fail hard here; comment out raise to keep permissive
-        # raise
+    except Exception:
         pass
 
     return ds
@@ -73,11 +82,11 @@ def add_derived_hrrr_variables(ds: xr.Dataset) -> xr.Dataset:
 class CoWyPointDataset(Dataset):
     """
     Point-based dataset mapping MADIS obs to nearest HRRR/IFS gridpoint,
-    including terrain covariates. Logic mirrors the original notebook.
+    including terrain covariates.
 
-    This version augments HRRR datasets with:
-      - lead_time_hrs (coord along 'step')
-      - init_z (variable along 'time')
+    Augments HRRR datasets with:
+      - lead_time_hrs (coord along 'step' if vector; scalar otherwise)
+      - init_z (variable along 'time' if vector; scalar otherwise)
       - ws_10m (derived from u10, v10)
       - elr (from cowy.physics.lapse_rate.compute_elr)
     """
@@ -111,34 +120,55 @@ class CoWyPointDataset(Dataset):
             # Some HRRR encodings include step attrs that break decode_cf
             if "step" in ds and "dtype" in ds["step"].attrs:
                 ds["step"].attrs.pop("dtype")
-            ds = xr.decode_cf(ds)
 
-            # --- Add forecast metadata and derived variables here ---
+            ds = xr.decode_cf(ds, decode_timedelta=True)
+
             ds = add_forecast_metadata(ds)
             ds = add_derived_hrrr_variables(ds)
 
-            # If multiple time values exist in a single file and downstream assumes
-            # scalar-time files, you *may* want to select time=0. Uncomment if needed:
-            # if "time" in ds.dims and ds.dims["time"] > 1:
-            #     ds = ds.isel(time=0)
+            # 2D lat/lon coords: promote 1-D rectilinear to 2-D on horizontal dims
+            if (
+                "latitude" in ds.coords
+                and "longitude" in ds.coords
+                and ds["latitude"].ndim == 1
+                and ds["longitude"].ndim == 1
+            ):
+                lat_da = ds["latitude"]
+                lon_da = ds["longitude"]
+                dims_2d = None
 
-            # 2D lat/lon coords
-            # Input files often have 1D lat/lon; convert to 2D (y,x) for KDTree indexing
-            lat1d = ds.latitude.values
-            lon1d = ds.longitude.values
-            lat2d, lon2d = np.meshgrid(lat1d, lon1d, indexing="ij")
-            ds = ds.assign_coords(
-                latitude=(("y", "x"), lat2d),
-                longitude=(("y", "x"), lon2d)
-            )
+                # Prefer ('y','x') if present and sizes match
+                if ("y" in ds.sizes and "x" in ds.sizes
+                        and ds.sizes["y"] == lat_da.size
+                        and ds.sizes["x"] == lon_da.size):
+                    dims_2d = ("y", "x")
+                else:
+                    # Infer from any data var with consecutive dims matching (lat_len, lon_len)
+                    for v in ds.data_vars:
+                        dv = ds[v]
+                        if dv.ndim >= 2:
+                            for i in range(dv.ndim - 1):
+                                d0, d1 = dv.dims[i], dv.dims[i + 1]
+                                if ds.sizes.get(d0) == lat_da.size and ds.sizes.get(d1) == lon_da.size:
+                                    dims_2d = (d0, d1)
+                                    break
+                        if dims_2d:
+                            break
+
+                if dims_2d:
+                    lat2d, lon2d = np.meshgrid(lat_da.values, lon_da.values, indexing="ij")
+                    ds = ds.assign_coords(
+                        latitude=(dims_2d, lat2d),
+                        longitude=(dims_2d, lon2d)
+                    )
 
             self.dsets_hrrr[fp] = ds
 
-        # derive variable list AFTER augmentation, preserves insertion order
+        # derive variable list AFTER augmentation
         sample_hrrr = next(iter(self.dsets_hrrr.values()))
         self.vars_hrrr = list(sample_hrrr.data_vars)
 
-        # valid_time → filepath
+        # valid_time → filepath (assumes scalar valid_time per file)
         self.times_hrrr = {
             pd.to_datetime(ds.valid_time.values): fp
             for fp, ds in self.dsets_hrrr.items()
@@ -151,7 +181,8 @@ class CoWyPointDataset(Dataset):
         self.ti_madis = pd.to_datetime(self.dset_madis.time.values)
 
         # --- TOPO ---
-        self.dset_topo = xr.open_mfdataset(topo_fps, engine="netcdf4")
+        with xr.set_options(use_new_combine_kwarg_defaults=True):
+            self.dset_topo = xr.open_mfdataset(topo_fps, engine="netcdf4")
         self.vars_topo = [v for v in self.dset_topo.data_vars if self.dset_topo[v].ndim == 2]
 
         lat1d_topo = self.dset_topo.latitude.values
@@ -162,6 +193,10 @@ class CoWyPointDataset(Dataset):
         # --- KDtrees ---
         hrrr_lat = sample_hrrr.latitude.values
         hrrr_lon = sample_hrrr.longitude.values
+
+        # If lat/lon are 1-D axes, build a 2-D mesh for KDTree
+        if hrrr_lat.ndim == 1 and hrrr_lon.ndim == 1:
+            hrrr_lat, hrrr_lon = np.meshgrid(hrrr_lat, hrrr_lon, indexing="ij")
 
         coords_hrrr = np.column_stack([hrrr_lat.ravel(), hrrr_lon.ravel()])
         coords_obs = np.column_stack([self.lat_obs, self.lon_obs])
@@ -252,7 +287,6 @@ class CoWyPointDataset(Dataset):
         ds = self.dsets_hrrr[fp]
         if self.cache_timestamp != timestamp:
             self.cache_timestamp = timestamp
-            # Stack HRRR variables according to vars_hrrr insertion order, now including ws_10m/elr/init_z
             self.cache_hrrr = np.dstack([ds[v].values for v in self.vars_hrrr]).astype(np.float32)
             self.cache_madis = np.vstack([
                 self.madis_arrays[v][idt_madis] for v in self.vars_madis

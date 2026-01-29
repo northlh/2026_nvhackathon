@@ -55,7 +55,7 @@ data:
   num_workers: 4      # MUST BE 0 (per your dataset design)
   pin_memory: true
   persistent_workers: true
-  drop_last: falst # keep full batches
+  drop_last: false # keep full batches
   
   
 

@@ -21,3 +21,15 @@ python scripts/evaluate.py configs/ifs_v1.yaml
  ### change to subset
         hrrr_fps = sorted(glob.glob(os.path.join(ifs_dir, "*.nc")))[:20]
 ```
+### the self check script is to examine the structure of the data to run it 
+
+```bash
+# Just HRRR/IFS
+python scripts/self_check_script.py --hrrr /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/ifs_2024-12-31_00:00:00_f81.nc
+
+# With MADIS (tests KDTree NN using obs coords)
+python scripts/self_check_script.py --hrrr /path/to/hrrr.nc --madis /path/to/madis.nc
+
+# With topo multi-file open test (silences compat FutureWarning)
+python scripts/self_check_script.py --hrrr /path/to/hrrr.nc --topo "/path/to/topo/*.nc"
+```

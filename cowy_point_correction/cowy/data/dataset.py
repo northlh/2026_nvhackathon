@@ -95,7 +95,7 @@ class CoWyPointDataset(Dataset):
         self.shuffle = shuffle
 
         # --- MADIS ---
-        self.dset_madis = xr.open_dataset(madis_fp, engine="h5netcdf")[["windspeed_10m"]]
+        self.dset_madis = xr.open_dataset(madis_fp, engine="netcdf4")[["windspeed_10m"]]
         self.vars_madis = list(self.dset_madis.data_vars)
         self.lat_obs = self.dset_madis.latitude.values
         self.lon_obs = self.dset_madis.longitude.values
@@ -151,7 +151,7 @@ class CoWyPointDataset(Dataset):
         self.ti_madis = pd.to_datetime(self.dset_madis.time.values)
 
         # --- TOPO ---
-        self.dset_topo = xr.open_mfdataset(topo_fps, engine="h5netcdf")
+        self.dset_topo = xr.open_mfdataset(topo_fps, engine="netcdf4")
         self.vars_topo = [v for v in self.dset_topo.data_vars if self.dset_topo[v].ndim == 2]
 
         lat1d_topo = self.dset_topo.latitude.values

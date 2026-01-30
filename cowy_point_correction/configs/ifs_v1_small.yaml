@@ -52,9 +52,9 @@ data:
   balance_thresholds: [5, 11]   # wind speed bins (m/s)
 
   # Data loader
-  num_workers: 0      
+  num_workers: 7      
   pin_memory: true
-  persistent_workers: false
+  persistent_workers: true
   drop_last: false # keep full batches
   
   
@@ -90,7 +90,7 @@ features:
 # ============================================================
 model:
   type: point_mlp
-  n_filters: 256
+  n_filters: 640
   dropout: 0.25
 
   # Regularization

@@ -115,7 +115,7 @@ training:
   gradient_clip_val: null
 
   # Early stopping (deliberately loose, matching notebook)
-  early_stopping:p
+  early_stopping:
     enabled: true
     monitor: validation_loss
     patience: 500

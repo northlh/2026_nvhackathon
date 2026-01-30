@@ -17,21 +17,21 @@ python scripts/prepare_data.py configs/ifs_v1.yaml \
   --terrain-src /project/cowy-nvhackathon/cowy-wildfire/data/terrain_data/terrain_990m/ \
   --ifs-src /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs/
 ```
-###data for the model needs to also be prepared. The train.py has a prepare mode that can be activated using 
+###data for the model needs to also be prepared. The train.py has a prepare mode that can be activated using. 
+
+###first run this with the argument --prepare-only to prep the data
 ```bash
+#1 run this first and only one time per time you run prepare_data.py
 python scripts/train.py configs/ifs_v1.yaml --prepare-only
+#2 run this second once you have run --prepare-only
+python scripts;/train.py configs/ifs_v1.yaml
+
 ```
 ### we can then run the training with the data as
 ```bash
-python scriptsd/train.py configs/ifs_v1.yaml
-```bash
 python scripts/evaluate.py configs/ifs_v1.yaml
 ```
-# to change which subset of data go to traning/datamodule.py change everything in the bracket
-```python
- ### change to subset
-        hrrr_fps = sorted(glob.glob(os.path.join(ifs_dir, "*.nc")))[:20]
-```
+
 ### the self check script is to examine the structure of the data to run it 
 
 ```bash

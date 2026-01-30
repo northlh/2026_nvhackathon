@@ -62,7 +62,7 @@ def forward_pass(model: L.LightningModule, dataloader: torch.utils.data.DataLoad
             y_hat = model(x).cpu().numpy()
             preds.append(y_hat)
             obs.append(y.numpy())
-            inpts.append(x.cpu().numpy())
+            inputs.append(x.cpu().numpy())
     return np.vstack(preds), np.vstack(obs), np.vstack(inputs)
 
 def main():
@@ -107,9 +107,9 @@ def main():
 
     # Forward passes
     print("Forward pass: train/val/test …")
-    pred_train, obs_train, inpts_train = forward_pass(model, dm.train_dataloader())
-    pred_val,   obs_val,   inpts_val   = forward_pass(model, dm.val_dataloader())
-    pred_test,  obs_test,  inpts_test  = forward_pass(model, dm.test_dataloader())
+    pred_train, obs_train, inputs_train = forward_pass(model, dm.train_dataloader())
+    pred_val,   obs_val,   inputs_val   = forward_pass(model, dm.val_dataloader())
+    pred_test,  obs_test,  inputs_test  = forward_pass(model, dm.test_dataloader())
 
     # Save arrays
     results_dir = os.path.join(version_dir, "best_ckpt_results")
@@ -117,13 +117,13 @@ def main():
 
     np.save(os.path.join(results_dir, "pred_train.npy"), pred_train)
     np.save(os.path.join(results_dir, "obs_train.npy"),  obs_train)
-    np.save(os.path.join(results_dir, "inpts_train.npy"), inpts_train)
+    np.save(os.path.join(results_dir, "inputs_train.npy"), inputs_train)
     np.save(os.path.join(results_dir, "pred_val.npy"),   pred_val)
     np.save(os.path.join(results_dir, "obs_val.npy"),    obs_val)
-    np.save(os.path.join(results_dir, "inpts_val.npy"),  inpts_val)
+    np.save(os.path.join(results_dir, "inputs_val.npy"),  inputs_val)
     np.save(os.path.join(results_dir, "pred_test.npy"),  pred_test)
     np.save(os.path.join(results_dir, "obs_test.npy"),   obs_test)
-    np.save(os.path.join(results_dir, "inpts_test.npy"), inpts_test)
+    np.save(os.path.join(results_dir, "inputs_test.npy"), inputs_test)
 
     # Save obs_lookup splits
     dm.train_ds.obs_lookup.to_csv(os.path.join(results_dir, "train_obs_lookup.csv"), index=False)

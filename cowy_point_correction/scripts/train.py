@@ -6,6 +6,7 @@ import json
 import yaml
 import warnings
 import torch
+import numpy as np
 torch.set_float32_matmul_precision('high')
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
@@ -57,7 +58,7 @@ def train(cfg):
     dm.setup("fit")
 
     # ---- Load normalization statistics ----
-    import numpy as np
+    
     mean = np.load(expand(cfg["paths"]["mean_file"]), mmap_mode="r")
     std = np.load(expand(cfg["paths"]["std_file"]), mmap_mode="r")
 

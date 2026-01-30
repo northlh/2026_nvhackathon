@@ -19,10 +19,11 @@ from typing import Optional, Tuple, Dict
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-import lightning as L
+from lightning.pytorch import LightningDataModule
 import torch
 from torch.utils.data import DataLoader
 import warnings
+from scipy.spatial import KDTree
 
 from cowy.data.dataset import CoWyPointDataset
 from cowy.data.spatial import spatial_blocking
@@ -45,6 +46,14 @@ def _seed_worker(worker_id: int):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+
+
+def _assert_split_ready(name: str, ds):
+    """Strong guard to surface empty/None datasets at loader creation."""
+    if ds is None:
+        raise RuntimeError(f"{name}_ds is None in DataModule.setup().")
+    if len(ds) == 0:
+        raise RuntimeError(f"{name}_ds has length 0 after setup().")
 
 
 def _ensure_zero_based_idx_obs(idx_obs: np.ndarray, n_obs: int) -> Tuple[np.ndarray, bool]:
@@ -83,6 +92,52 @@ def _ensure_zero_based_idx_obs(idx_obs: np.ndarray, n_obs: int) -> Tuple[np.ndar
     return idx_obs, was_shifted
 
 
+def _transpose_madis_time_station(ds: CoWyPointDataset) -> np.ndarray:
+    """
+    Return winds peed array with axes ordered as (time, station) regardless of original order.
+    We identify dims by name/length: prefer 'time' as time dim; station dim matches len(ds.lat_obs).
+    """
+    da = ds.dset_madis["windspeed_10m"]
+    dims = list(da.dims)
+    sizes = {d: da.sizes[d] for d in dims}
+
+    # Identify time dim: prefer the one named 'time'; else match ds.ti_madis length
+    time_dim = None
+    if "time" in dims:
+        time_dim = "time"
+    else:
+        # fallback by length
+        len_time = len(ds.ti_madis)
+        for d in dims:
+            if sizes[d] == len_time:
+                time_dim = d
+                break
+
+    if time_dim is None:
+        raise RuntimeError(f"Cannot identify time dimension in MADIS variable with dims={dims}")
+
+    # Identify station dim as the one matching station count (len(lat_obs))
+    station_dim = None
+    n_station = len(ds.lat_obs)
+    for d in dims:
+        if d != time_dim and sizes[d] == n_station:
+            station_dim = d
+            break
+
+    if station_dim is None:
+        # If not found by size, try any remaining dim that isn't time (last resort)
+        for d in dims:
+            if d != time_dim:
+                station_dim = d
+                break
+
+    if station_dim is None:
+        raise RuntimeError(f"Cannot identify station dimension in MADIS variable with dims={dims}")
+
+    da_ts = da.transpose(time_dim, station_dim)
+    return np.asarray(da_ts.values)
+
+
 def _balance_train_classes(train_ds, thresholds=[5, 11], seed: int = 42):
     """
     Upsample bins to the size of the largest bin.
@@ -91,14 +146,13 @@ def _balance_train_classes(train_ds, thresholds=[5, 11], seed: int = 42):
     print("Balancing training classes …")
     df = train_ds.obs_lookup.copy()
 
-    # Pull the observation values corresponding to obs_lookup rows
-    obs_all = train_ds.dset_madis["windspeed_10m"].values  # shape: [time, station]
-    obs_all_np = np.asarray(obs_all)
+    # Pull the observation values with (time, station) axis order
+    obs_all_np = _transpose_madis_time_station(train_ds)  # shape: [time, station]
 
     # Normalize and validate indices before advanced indexing
     idt = df["idt_madis"].to_numpy(dtype=np.int64, copy=False)
     idx_obs_raw = df["idx_obs"].to_numpy()
-    n_obs = int(obs_all_np.shape[1])
+    n_obs = int(len(train_ds.lat_obs))  # station count robustly from coords
 
     idx_obs, shifted = _ensure_zero_based_idx_obs(idx_obs_raw, n_obs)
     if shifted:
@@ -149,10 +203,80 @@ def _balance_train_classes(train_ds, thresholds=[5, 11], seed: int = 42):
 
 
 # ---------------------------
+# NEW: Per-split index remapping (Option A, robust by coords)
+# ---------------------------
+
+def _remap_idx_obs_to_local_using_coords(split_ds: CoWyPointDataset, base_ds: CoWyPointDataset, split_name: str):
+    """
+    Remap split_ds.obs_lookup['idx_obs'] (global station ids) to the local, 0..N-1
+    station indices that align with split_ds.dset_madis (its actual station axis).
+
+    Use station coordinates (lat/lon) to build a global->local mapping.
+    """
+    df = split_ds.obs_lookup
+    if df.empty:
+        return
+
+    # Station counts from coords (reliable)
+    n_local = int(len(split_ds.lat_obs))
+    n_global = int(len(base_ds.lat_obs))
+
+    idx_raw = df["idx_obs"].to_numpy()
+
+    # If sizes match and current idx_obs are already within bounds, skip
+    if n_local == n_global and (idx_raw.min() >= 0 and idx_raw.max() < n_local):
+        return
+
+    # Build KDTree on GLOBAL station coords (lat, lon)
+    global_coords = np.column_stack([base_ds.lat_obs, base_ds.lon_obs])   # [N_global, 2]
+    local_coords  = np.column_stack([split_ds.lat_obs, split_ds.lon_obs]) # [N_local, 2]
+
+    tree = KDTree(global_coords)
+    dists, global_idx_for_local = tree.query(local_coords, k=1)
+
+    # Optional: sanity—ensure matches are tight (degrees). If not, warn.
+    max_dist = float(np.max(dists)) if dists.size > 0 else 0.0
+    if max_dist > 1e-6:
+        warnings.warn(
+            f"[{split_name}] Max lat/lon mismatch when remapping obs indices: {max_dist:.3e} degrees",
+            RuntimeWarning,
+        )
+
+    # Invert mapping: global -> local (global_idx_for_local[local] = global)
+    mapping = {int(g): int(l) for l, g in enumerate(global_idx_for_local)}
+
+    # Apply mapping; preserve original as 'idx_obs_global'
+    df["idx_obs_global"] = df["idx_obs"].astype(np.int64)
+    try:
+        df["idx_obs"] = df["idx_obs"].map(mapping).astype(np.int32)
+    except Exception:
+        # Fallback: drop rows with unmapped station ids (should be rare)
+        before = len(df)
+        df = df[df["idx_obs"].isin(mapping.keys())].copy()
+        after = len(df)
+        warnings.warn(
+            f"[{split_name}] Dropped {before - after} rows with unmapped global station ids.",
+            RuntimeWarning,
+        )
+        df["idx_obs"] = df["idx_obs"].map(mapping).astype(np.int32)
+
+    # Assign back (in case we replaced df)
+    split_ds.obs_lookup = df.reset_index(drop=True)
+
+    # Final guard: ensure within local bounds (using n_local from coords)
+    idx_new = split_ds.obs_lookup["idx_obs"].to_numpy()
+    if not (idx_new.min() >= 0 and idx_new.max() < n_local):
+        raise RuntimeError(
+            f"[{split_name}] Remap produced out-of-bounds station indices: "
+            f"min={idx_new.min()}, max={idx_new.max()}, allowed=[0,{n_local-1}]"
+        )
+
+
+# ---------------------------
 # DataModule
 # ---------------------------
 
-class CoWyDataModule(L.LightningDataModule):
+class CoWyDataModule(LightningDataModule):
     """
     Lightning DataModule with a one-time 'prepare()' to cache split keys
     and a fast 'setup()' that reuses them.
@@ -198,11 +322,6 @@ class CoWyDataModule(L.LightningDataModule):
         self.val_ds = None
         self.test_ds = None
 
-        # Optional: generator for reproducible sampling (works with worker_init_fn)
-        self._dl_generator = torch.Generator()
-        seed = int(cfg["experiment"]["seed"])
-        self._dl_generator.manual_seed(seed)
-
         # Derive file paths for prepared split key CSVs from obs_lookup stem
         self._split_paths = self._derive_split_paths()
 
@@ -233,7 +352,7 @@ class CoWyDataModule(L.LightningDataModule):
         return all(os.path.exists(p[k]) for k in ("train", "val", "test"))
 
     # ---------------------------
-    # NEW: One-time prepare step
+    # One-time prepare step
     # ---------------------------
 
     def prepare(self):
@@ -291,6 +410,10 @@ class CoWyDataModule(L.LightningDataModule):
         keys_val = ref_df.loc[val_idx, ["timestamp", "idx_obs"]].drop_duplicates()
         keys_test = test_ds.obs_lookup[["timestamp", "idx_obs"]].drop_duplicates()
 
+        # Normalize timestamps to tz-naive before writing (helps future reads)
+        for df_keys in (keys_train, keys_val, keys_test):
+            df_keys["timestamp"] = pd.to_datetime(df_keys["timestamp"], errors="coerce").dt.tz_localize(None)
+
         # Write split key CSVs
         out_paths = self._split_paths
         os.makedirs(str(Path(out_paths["train"]).parent), exist_ok=True)
@@ -335,14 +458,22 @@ class CoWyDataModule(L.LightningDataModule):
             # ---- FAST PATH: load split keys and subset without recomputing ----
             print("Found prepared split keys — skipping spatial blocking and random split.")
             p = self._split_paths
-            keys_train = pd.read_csv(p["train"])
-            keys_val = pd.read_csv(p["val"])
-            keys_test = pd.read_csv(p["test"])
+
+            # Parse timestamps on read and normalize to tz-naive
+            keys_train = pd.read_csv(p["train"], parse_dates=["timestamp"])
+            keys_val   = pd.read_csv(p["val"],   parse_dates=["timestamp"])
+            keys_test  = pd.read_csv(p["test"],  parse_dates=["timestamp"])
+            for df_keys in (keys_train, keys_val, keys_test):
+                df_keys["timestamp"] = pd.to_datetime(df_keys["timestamp"], errors="coerce", utc=True).dt.tz_localize(None)
 
             # Build datasets via key-based inner join
             train_ds = copy.deepcopy(base_ds)
-            val_ds = copy.deepcopy(base_ds)
-            test_ds = copy.deepcopy(base_ds)
+            val_ds   = copy.deepcopy(base_ds)
+            test_ds  = copy.deepcopy(base_ds)
+
+            # Ensure obs_lookup timestamps are datetime64[ns]
+            for ds_ in (train_ds, val_ds, test_ds):
+                ds_.obs_lookup["timestamp"] = pd.to_datetime(ds_.obs_lookup["timestamp"], errors="coerce")
 
             train_ds.obs_lookup = (
                 train_ds.obs_lookup.merge(keys_train, on=["timestamp", "idx_obs"], how="inner")
@@ -403,6 +534,11 @@ class CoWyDataModule(L.LightningDataModule):
 
             print(f"Train: {len(train_ds):,} rows | Val: {len(val_ds):,} rows (after key-based split)")
 
+        # --- Remap station indices per split to match each split's dset_madis (Option A) ---
+        _remap_idx_obs_to_local_using_coords(train_ds, base_ds, split_name="train")
+        _remap_idx_obs_to_local_using_coords(val_ds,   base_ds, split_name="val")
+        _remap_idx_obs_to_local_using_coords(test_ds,  base_ds, split_name="test")
+
         # --- Optional class balancing on train split ---
         if data_cfg.get("balance_classes", False):
             thresholds = data_cfg.get("balance_thresholds", [5, 11])
@@ -440,7 +576,7 @@ class CoWyDataModule(L.LightningDataModule):
             pin_memory=self.dl_pin_memory,
             drop_last=self.dl_drop_last,
             worker_init_fn=_seed_worker,
-            generator=self._dl_generator,
+            # Avoid passing torch.Generator across processes; rely on _seed_worker for reproducibility.
         )
 
         # Only set persistent_workers if num_workers > 0
@@ -462,19 +598,23 @@ class CoWyDataModule(L.LightningDataModule):
         return kwargs
 
     def train_dataloader(self):
-        return DataLoader(
-            self.train_ds,
-            **self._build_loader_kwargs(split="train"),
-        )
+        _assert_split_ready("train", self.train_ds)
+        dl = DataLoader(self.train_ds, **self._build_loader_kwargs(split="train"))
+        print(f"[DM] train_dataloader -> {len(self.train_ds)} samples, batch_size={self.batch_size}")
+        return dl
 
     def val_dataloader(self):
-        return DataLoader(
-            self.val_ds,
-            **self._build_loader_kwargs(split="val"),
-        )
+        if self.val_ds is None or len(self.val_ds) == 0:
+            print("[DM] val_dataloader -> no validation dataset (returning empty list)")
+            return []
+        dl = DataLoader(self.val_ds, **self._build_loader_kwargs(split="val"))
+        print(f"[DM] val_dataloader -> {len(self.val_ds)} samples, batch_size={self.batch_size}")
+        return dl
 
     def test_dataloader(self):
-        return DataLoader(
-            self.test_ds,
-            **self._build_loader_kwargs(split="test"),
-        )
+        if self.test_ds is None or len(self.test_ds) == 0:
+            print("[DM] test_dataloader -> no test dataset (returning empty list)")
+            return []
+        dl = DataLoader(self.test_ds, **self._build_loader_kwargs(split="test"))
+        print(f"[DM] test_dataloader -> {len(self.test_ds)} samples, batch_size={self.batch_size}")
+        return dl

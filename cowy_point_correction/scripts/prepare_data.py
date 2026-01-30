@@ -89,9 +89,12 @@ def compute_stats(dataset: CoWyPointDataset, save_mean: str, save_std: str):
     np.save(save_mean, mean)
     np.save(save_std, std)
     
-    #### save actual arrays here
-    np.save(X, 'X_features.npy')
-    np.save(Y, 'Y_targets.npy')
+    # Pick an output directory; using the mean/std directory keeps things together
+    out_dir = os.path.dirname(save_mean)
+    os.makedirs(out_dir, exist_ok=True)
+
+    np.save(os.path.join(out_dir, "X_features.npy"), X)
+    np.save(os.path.join(out_dir, "Y_targets.npy"), Y)
 
     print(f"Saved mean to: {save_mean}")
     print(f"Saved std  to: {save_std}")

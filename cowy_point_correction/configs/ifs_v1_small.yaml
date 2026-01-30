@@ -52,9 +52,9 @@ data:
   balance_thresholds: [5, 11]   # wind speed bins (m/s)
 
   # Data loader
-  num_workers: 4      # MUST BE 0 (per your dataset design)
+  num_workers: 0      
   pin_memory: true
-  persistent_workers: true
+  persistent_workers: false
   drop_last: false # keep full batches
   
   
@@ -90,7 +90,7 @@ features:
 # ============================================================
 model:
   type: point_mlp
-  n_filters: 640
+  n_filters: 256
   dropout: 0.25
 
   # Regularization
@@ -101,7 +101,7 @@ model:
 # Training configuration
 # ============================================================
 training:
-  batch_size: 2500
+  batch_size: 256
   max_epochs: 55
 
   optimizer:
@@ -110,7 +110,7 @@ training:
     eps: 1.0e-5
     weight_decay: 1.0e-4
 
-  precision: 32
+  precision: 16-mixed
   gradient_clip_val: null
 
   # Early stopping (deliberately loose, matching notebook)
@@ -125,7 +125,7 @@ training:
 # Logging & checkpoints
 # ============================================================
 logging:
-  log_every_n_steps: 10
+  log_every_n_steps: 1
 
   tensorboard:
     enabled: true
@@ -151,4 +151,3 @@ evaluation:
     map:
       enabled: true
       coastline_resolution: 10m
-

@@ -5,7 +5,8 @@ import argparse
 import json
 import yaml
 import warnings
-
+import torch
+torch.set_float32_matmul_precision('high')
 import lightning as L
 from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
 from lightning.pytorch.callbacks import RichProgressBar
@@ -82,7 +83,7 @@ def train(cfg):
     # ---- Trainer ----
     trainer = L.Trainer(
         max_epochs=cfg["training"]["max_epochs"],
-        accelerator="auto",
+        accelerator="gpu",
         logger=[tb_logger, csv_logger],
         callbacks=callbacks,
         log_every_n_steps=cfg["logging"]["log_every_n_steps"],

@@ -1,4 +1,3 @@
-
 # cowy/models/point_model.py
 import torch
 import torch.nn as nn
@@ -16,7 +15,6 @@ class PointCorrectionModel(L.LightningModule):
 
         nf = cfg["model"]["n_filters"]
         p = cfg["model"]["dropout"]
-        self.l1_lambda = cfg["model"]["l1_lambda"]
 
         self.model = nn.Sequential(
             FixedNorm(mean, std),
@@ -36,21 +34,36 @@ class PointCorrectionModel(L.LightningModule):
         return self.model(x)
 
     def _loss(self, yhat, y):
-        mse = nn.functional.mse_loss(yhat, y)
-        l1 = sum(p.abs().sum() for p in self.parameters())
-        return mse + self.l1_lambda * l1
+        return nn.functional.mse_loss(yhat, y)
 
     def training_step(self, batch, _):
         x, y = batch
         loss = self._loss(self(x), y)
-        self.log("train_loss", loss, prog_bar=True)
+        self.log(
+            "train_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, _):
         x, y = batch
         loss = self._loss(self(x), y)
         self.log("validation_loss", loss, prog_bar=True)
-
+    def validation_step(self, batch, _):
+        x, y = batch
+        loss = self._loss(self(x), y)
+        self.log(
+            "validation_loss",
+            loss,
+            on_step=False,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
     def configure_optimizers(self):
         opt = AdamW(
             self.parameters(),

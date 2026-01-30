@@ -22,6 +22,7 @@ paths:
 
   # Output root (Lightning logs, checkpoints, eval results)
   output_root: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/lightning_logs_v1
+  # output_root: /gscratch/kylabazlen/lightning_logs_v1
 
   # Cached metadata
   obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/obs_lookup.csv
@@ -48,7 +49,7 @@ data:
   shuffle_timesteps: true
 
   # Class imbalance handling
-  balance_classes: true
+  balance_classes: false
   balance_thresholds: [5, 11]   # wind speed bins (m/s)
 
   # Data loader
@@ -114,7 +115,7 @@ training:
   gradient_clip_val: null
 
   # Early stopping (deliberately loose, matching notebook)
-  early_stopping:
+  early_stopping:p
     enabled: true
     monitor: validation_loss
     patience: 500

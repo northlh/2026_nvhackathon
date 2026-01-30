@@ -8,6 +8,9 @@ bias correction of HRRR / IFS wind forecasts using MADIS observations.
 ### prepare data usage arguments are configs, terrain path, and ifs path
 ### train the model
 ### evaluate the models
+
+
+### run this script without the arguments or it will copy the dataset
 ```bash
 
 python scripts/prepare_data.py configs/ifs_v1.yaml \

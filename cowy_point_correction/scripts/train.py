@@ -88,6 +88,7 @@ def train(cfg):
         callbacks=callbacks,
         log_every_n_steps=cfg["logging"]["log_every_n_steps"],
         enable_progress_bar=True,
+        precision=cfg["training"]["precision"], ### delete if broken
         num_sanity_val_steps=0,  # avoids slow startup
     )
 

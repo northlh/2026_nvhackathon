@@ -7,6 +7,14 @@ Usage (two-step workflow):
 
 2) Train (fast startup; reuses prepared split keys):
    python train.py config.yaml
+
+Performance notes:
+- To reduce memory and startup overhead, we avoid copying the full dataset three times.
+  Instead, we shallow-copy the dataset object and deep-copy only `obs_lookup` for each split.
+
+Mixed precision:
+- Enable in your Trainer (not here) for speedups on supported GPUs:
+  Trainer(..., precision=cfg["training"].get("precision", "16-mixed"))
 """
 
 import os
@@ -94,7 +102,7 @@ def _ensure_zero_based_idx_obs(idx_obs: np.ndarray, n_obs: int) -> Tuple[np.ndar
 
 def _transpose_madis_time_station(ds: CoWyPointDataset) -> np.ndarray:
     """
-    Return winds peed array with axes ordered as (time, station) regardless of original order.
+    Return wind speed array with axes ordered as (time, station) regardless of original order.
     We identify dims by name/length: prefer 'time' as time dim; station dim matches len(ds.lat_obs).
     """
     da = ds.dset_madis["windspeed_10m"]
@@ -106,7 +114,6 @@ def _transpose_madis_time_station(ds: CoWyPointDataset) -> np.ndarray:
     if "time" in dims:
         time_dim = "time"
     else:
-        # fallback by length
         len_time = len(ds.ti_madis)
         for d in dims:
             if sizes[d] == len_time:
@@ -297,6 +304,7 @@ class CoWyDataModule(LightningDataModule):
     Notes:
       * We keep shuffle=False in DataLoaders because your dataset handles timestep-aware shuffling internally.
       * Batch size is sourced from cfg["training"]["batch_size"].
+      * Mixed precision is configured in the Trainer (e.g., precision: "16-mixed").
     """
 
     def __init__(self, cfg: dict):
@@ -350,6 +358,22 @@ class CoWyDataModule(LightningDataModule):
     def _prepared_exists(self) -> bool:
         p = self._split_paths
         return all(os.path.exists(p[k]) for k in ("train", "val", "test"))
+
+    def _clone_dataset_with_obs(self, base_ds: CoWyPointDataset, new_obs_lookup: pd.DataFrame) -> CoWyPointDataset:
+        """
+        Create a shallow clone of base_ds and attach a *new* obs_lookup DataFrame.
+        Only obs_lookup is copied (deep) to keep split mutations isolated.
+        Other heavy attributes (arrays, mmap, xarray) remain shared → faster & memory-friendly.
+
+        If your dataset keeps per-instance caches, consider resetting them here.
+        """
+        ds = copy.copy(base_ds)  # shallow clone the object (shares heavy attributes)
+        ds.obs_lookup = new_obs_lookup.copy(deep=True)  # split-specific DataFrame
+        # Optional: reset known caches on the new instance:
+        # for cache_attr in ("_some_cache", "_other_cache"):
+        #     if hasattr(ds, cache_attr):
+        #         setattr(ds, cache_attr, None)
+        return ds
 
     # ---------------------------
     # One-time prepare step
@@ -466,27 +490,26 @@ class CoWyDataModule(LightningDataModule):
             for df_keys in (keys_train, keys_val, keys_test):
                 df_keys["timestamp"] = pd.to_datetime(df_keys["timestamp"], errors="coerce", utc=True).dt.tz_localize(None)
 
-            # Build datasets via key-based inner join
-            train_ds = copy.deepcopy(base_ds)
-            val_ds   = copy.deepcopy(base_ds)
-            test_ds  = copy.deepcopy(base_ds)
+            # Normalize once on the base obs_lookup and derive split tables
+            base_obs = base_ds.obs_lookup.copy()
+            base_obs["timestamp"] = pd.to_datetime(base_obs["timestamp"], errors="coerce")
 
-            # Ensure obs_lookup timestamps are datetime64[ns]
-            for ds_ in (train_ds, val_ds, test_ds):
-                ds_.obs_lookup["timestamp"] = pd.to_datetime(ds_.obs_lookup["timestamp"], errors="coerce")
+            obs_train = (
+                base_obs.merge(keys_train, on=["timestamp", "idx_obs"], how="inner")
+                        .reset_index(drop=True)
+            )
+            obs_val = (
+                base_obs.merge(keys_val, on=["timestamp", "idx_obs"], how="inner")
+                        .reset_index(drop=True)
+            )
+            obs_test = (
+                base_obs.merge(keys_test, on=["timestamp", "idx_obs"], how="inner")
+                        .reset_index(drop=True)
+            )
 
-            train_ds.obs_lookup = (
-                train_ds.obs_lookup.merge(keys_train, on=["timestamp", "idx_obs"], how="inner")
-                .reset_index(drop=True)
-            )
-            val_ds.obs_lookup = (
-                val_ds.obs_lookup.merge(keys_val, on=["timestamp", "idx_obs"], how="inner")
-                .reset_index(drop=True)
-            )
-            test_ds.obs_lookup = (
-                test_ds.obs_lookup.merge(keys_test, on=["timestamp", "idx_obs"], how="inner")
-                .reset_index(drop=True)
-            )
+            train_ds = self._clone_dataset_with_obs(base_ds, obs_train)
+            val_ds   = self._clone_dataset_with_obs(base_ds, obs_val)
+            test_ds  = self._clone_dataset_with_obs(base_ds, obs_test)
 
             if len(train_ds) == 0 or len(val_ds) == 0:
                 raise RuntimeError(
@@ -518,19 +541,24 @@ class CoWyDataModule(LightningDataModule):
 
             ref_df = train_full_ds.obs_lookup.reset_index(drop=True)
             keys_train = ref_df.loc[train_idx, ["timestamp", "idx_obs"]].drop_duplicates()
-            keys_val = ref_df.loc[val_idx, ["timestamp", "idx_obs"]].drop_duplicates()
+            keys_val   = ref_df.loc[val_idx, ["timestamp", "idx_obs"]].drop_duplicates()
 
-            train_ds = copy.deepcopy(train_full_ds)
-            val_ds = copy.deepcopy(train_full_ds)
+            # Normalize once and derive split obs_lookup tables
+            base_obs = train_full_ds.obs_lookup.copy()
+            base_obs["timestamp"] = pd.to_datetime(base_obs["timestamp"], errors="coerce")
 
-            train_ds.obs_lookup = (
-                train_ds.obs_lookup.merge(keys_train, on=["timestamp", "idx_obs"], how="inner")
-                .reset_index(drop=True)
+            obs_train = (
+                base_obs.merge(keys_train, on=["timestamp", "idx_obs"], how="inner")
+                        .reset_index(drop=True)
             )
-            val_ds.obs_lookup = (
-                val_ds.obs_lookup.merge(keys_val, on=["timestamp", "idx_obs"], how="inner")
-                .reset_index(drop=True)
+            obs_val = (
+                base_obs.merge(keys_val, on=["timestamp", "idx_obs"], how="inner")
+                        .reset_index(drop=True)
             )
+
+            train_ds = self._clone_dataset_with_obs(train_full_ds, obs_train)
+            val_ds   = self._clone_dataset_with_obs(train_full_ds, obs_val)
+            # test_ds already provided by spatial_blocking
 
             print(f"Train: {len(train_ds):,} rows | Val: {len(val_ds):,} rows (after key-based split)")
 

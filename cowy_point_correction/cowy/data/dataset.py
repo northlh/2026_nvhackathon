@@ -206,7 +206,10 @@ class CoWyPointDataset(Dataset):
 
         self.size_hrrr = hrrr_lat.size
         self.shape_hrrr = hrrr_lat.shape
-        ind_grid = np.arange(self.size_hrrr).reshape(self.shape_hrrr)
+
+        # Precompute (row, col) indices for each observation's nearest HRRR cell
+        # This replaces the old O(N) np.where() scan with O(1) lookups.
+        self.idy_hrrr_all, self.idx_hrrr_all = np.unravel_index(self.nn_ind, self.shape_hrrr)
 
         topo_coords = np.column_stack([self.lat_topo.ravel(), self.lon_topo.ravel()])
         tree_topo = KDTree(topo_coords)
@@ -225,7 +228,7 @@ class CoWyPointDataset(Dataset):
 
         # --- obs_lookup ---
         if obs_meta_cache is None:
-            self._set_obs_lookup(ind_grid)
+            self._set_obs_lookup()
         else:
             self.obs_lookup = pd.read_csv(obs_meta_cache)
             self.obs_lookup["timestamp"] = pd.to_datetime(self.obs_lookup["timestamp"])
@@ -237,7 +240,7 @@ class CoWyPointDataset(Dataset):
         self.cache_hrrr = None
         self.cache_madis = None
 
-    def _set_obs_lookup(self, ind_grid):
+    def _set_obs_lookup(self):
         data = {
             "idx_obs": [],
             "idt_madis": [],
@@ -264,13 +267,13 @@ class CoWyPointDataset(Dataset):
 
             fp = self.times_hrrr[ts]
             for i in idx_valid:
-                y, x = np.where(ind_grid == self.nn_ind[i])
                 data["idx_obs"].append(i)
                 data["idt_madis"].append(idt)
                 data["timestamp"].append(ts)
                 data["fp_hrrr"].append(fp)
-                data["idy_hrrr"].append(int(y[0]))
-                data["idx_hrrr"].append(int(x[0]))
+                # Fast O(1) lookup using precomputed unravel indices
+                data["idy_hrrr"].append(int(self.idy_hrrr_all[i]))
+                data["idx_hrrr"].append(int(self.idx_hrrr_all[i]))
                 data["idy_topo"].append(int(self.idy_topo[i]))
                 data["idx_topo"].append(int(self.idx_topo[i]))
                 data["latitude"].append(self.lat_obs[i])

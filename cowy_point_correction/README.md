@@ -24,7 +24,7 @@ python scripts/prepare_data.py configs/ifs_v1.yaml \
 #1 run this first and only one time per time you run prepare_data.py
 python scripts/train.py configs/ifs_v1.yaml --prepare-only
 #2 run this second once you have run --prepare-only
-python scripts;/train.py configs/ifs_v1.yaml
+python scripts/train.py configs/ifs_v1.yaml
 
 ```
 ### we can then run the training with the data as

@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
+import xarray as xr
 
 
 COLORS = [
@@ -379,99 +380,99 @@ def plot_station_gof_map(
 
     return {'ax': ax, 'fig': fig, 'cbar': cbar, 'scatter': sc}
 
-    def density_scatter(
-        ds: xr.Dataset = None,
-        x=None,
-        y=None,
-        bins=100,
-        cmap="viridis",
-        one_to_one_line=True,
-        trend_line=False) -> plt.Axes:
-        """
-        Scatter plot with coloring by point density.
+def density_scatter(
+    ds: xr.Dataset = None,
+    x=None,
+    y=None,
+    bins=100,
+    cmap="viridis",
+    one_to_one_line=True,
+    trend_line=False) -> plt.Axes:
+    """
+    Scatter plot with coloring by point density.
 
-        Parameters
-        ----------
-        ds : xr.Dataset, optional
-            Dataset containing x and y variables. If provided, x and y should be variable names (str).
-        x : str or np.ndarray
-            Name of x variable in the dataset (if ds is provided) or x values as a NumPy array.
-        y : str or np.ndarray
-            Name of y variable in the dataset (if ds is provided) or y values as a NumPy array.
-        bins : int, optional
-            Number of bins for the 2D histogram. Default is 100.
-        cmap : str, optional
-            Colormap for the scatter plot. Default is "viridis".
+    Parameters
+    ----------
+    ds : xr.Dataset, optional
+        Dataset containing x and y variables. If provided, x and y should be variable names (str).
+    x : str or np.ndarray
+        Name of x variable in the dataset (if ds is provided) or x values as a NumPy array.
+    y : str or np.ndarray
+        Name of y variable in the dataset (if ds is provided) or y values as a NumPy array.
+    bins : int, optional
+        Number of bins for the 2D histogram. Default is 100.
+    cmap : str, optional
+        Colormap for the scatter plot. Default is "viridis".
 
-        Returns
-        -------
-        matplotlib.axes.Axes
-            Axis of the created plot.
-        """
-        import numpy as np
-        import matplotlib.pyplot as plt
+    Returns
+    -------
+    matplotlib.axes.Axes
+        Axis of the created plot.
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
 
-        # Extract data from xarray.Dataset if provided and x/y are variable names
-        if ds is not None and isinstance(x, str) and isinstance(y, str):
-            x = ds[x].values.ravel()
-            y = ds[y].values.ravel()
-        elif isinstance(x, np.ndarray) and isinstance(y, np.ndarray):
-            x = x.ravel()
-            y = y.ravel()
-        else:
-            raise ValueError("Provide either a dataset with variable names (x, y as str) or x and y as NumPy arrays.")
+    # Extract data from xarray.Dataset if provided and x/y are variable names
+    if ds is not None and isinstance(x, str) and isinstance(y, str):
+        x = ds[x].values.ravel()
+        y = ds[y].values.ravel()
+    elif isinstance(x, np.ndarray) and isinstance(y, np.ndarray):
+        x = x.ravel()
+        y = y.ravel()
+    else:
+        raise ValueError("Provide either a dataset with variable names (x, y as str) or x and y as NumPy arrays.")
 
-        # Remove NaN values
-        mask = ~np.isnan(x) & ~np.isnan(y)
-        x = x[mask]
-        y = y[mask]
+    # Remove NaN values
+    mask = ~np.isnan(x) & ~np.isnan(y)
+    x = x[mask]
+    y = y[mask]
 
-        # Compute 2D histogram for density
-        counts, xedges, yedges = np.histogram2d(x, y, bins=bins)
+    # Compute 2D histogram for density
+    counts, xedges, yedges = np.histogram2d(x, y, bins=bins)
 
-        # Map each point to its bin density
-        ix = np.searchsorted(xedges, x) - 1
-        iy = np.searchsorted(yedges, y) - 1
-        ix = np.clip(ix, 0, counts.shape[0] - 1)
-        iy = np.clip(iy, 0, counts.shape[1] - 1)
-        density = counts[ix, iy]
+    # Map each point to its bin density
+    ix = np.searchsorted(xedges, x) - 1
+    iy = np.searchsorted(yedges, y) - 1
+    ix = np.clip(ix, 0, counts.shape[0] - 1)
+    iy = np.clip(iy, 0, counts.shape[1] - 1)
+    density = counts[ix, iy]
 
-        # Create the scatter plot
-        fig, ax = plt.subplots()
-        # sc = ax.scatter(x, y, c=density, cmap=cmap, s=5)
-        # fig.colorbar(sc, label="Density")
-        sc = ax.scatter(x, y, c=np.log1p(density), cmap=cmap, s=5)
-        fig.colorbar(sc, label="Log Density")
+    # Create the scatter plot
+    fig, ax = plt.subplots()
+    # sc = ax.scatter(x, y, c=density, cmap=cmap, s=5)
+    # fig.colorbar(sc, label="Density")
+    sc = ax.scatter(x, y, c=np.log1p(density), cmap=cmap, s=5)
+    fig.colorbar(sc, label="Log Density")
 
-        # Add 1:1 line
-        min_val = min(x.min(), y.min())
-        max_val = max(x.max(), y.max())
+    # Add 1:1 line
+    min_val = min(x.min(), y.min())
+    max_val = max(x.max(), y.max())
 
-        if one_to_one_line:
-            ax.plot(
-                [min_val, max_val],
-                [min_val, max_val],
-                "r--",
-                linewidth=1.2,
-                label="1:1 Line",
+    if one_to_one_line:
+        ax.plot(
+            [min_val, max_val],
+            [min_val, max_val],
+            "r--",
+            linewidth=1.2,
+            label="1:1 Line",
+    )
+
+    # Add trend line (linear regression)
+    if trend_line:
+        # Calculate linear regression
+        coeffs = np.polyfit(x, y, 1)  # Returns [slope, intercept]
+        trend_y = coeffs[0] * x + coeffs[1]
+        
+        # Plot trend line
+        ax.plot(
+            [x.min(), x.max()],
+            [coeffs[0] * x.min() + coeffs[1], coeffs[0] * x.max() + coeffs[1]],
+            "r--",
+            linewidth=1.2,
+            label=f"Trend (y = {coeffs[0]:.2f}x + {coeffs[1]:.2f})",
         )
 
-        # Add trend line (linear regression)
-        if trend_line:
-            # Calculate linear regression
-            coeffs = np.polyfit(x, y, 1)  # Returns [slope, intercept]
-            trend_y = coeffs[0] * x + coeffs[1]
-            
-            # Plot trend line
-            ax.plot(
-                [x.min(), x.max()],
-                [coeffs[0] * x.min() + coeffs[1], coeffs[0] * x.max() + coeffs[1]],
-                "r--",
-                linewidth=1.2,
-                label=f"Trend (y = {coeffs[0]:.2f}x + {coeffs[1]:.2f})",
-            )
-
-        return ax
+    return ax
 
 def confusion_matrix(obs, pred, threshold, labels=None):
     """

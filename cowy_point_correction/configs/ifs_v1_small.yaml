@@ -21,16 +21,18 @@ paths:
   ifs_dir: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs_small
 
   # Output root (Lightning logs, checkpoints, eval results)
-  output_root: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/lightning_logs_v1
-  # output_root: /gscratch/kylabazlen/lightning_logs_v1
+  #output_root: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/lightning_logs_v1
+  output_root: /gscratch/kylabazlen/prepare_data_out_small/lightning_logs_v1
 
   # Cached metadata
-  obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/obs_lookup.csv
+  # obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/obs_lookup.csv
+  obs_lookup: /gscratch/kylabazlen/prepare_data_out_small/obs_lookup.csv
 
   # Normalization
-  mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/mean_v1.npy
-  std_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/sd_v1.npy
-
+  # mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/mean_v1.npy
+  mean_file: /gscratch/kylabazlen/prepare_data_out_small/mean_v1.npy
+  # std_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out_small/sd_v1.npy
+  std_file: /gscratch/kylabazlen/prepare_data_out_small/sd_v1.npy
 
 # ============================================================
 # Data preparation & filtering

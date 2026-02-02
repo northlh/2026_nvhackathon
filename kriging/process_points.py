@@ -51,20 +51,15 @@ def calc_met_gof(
         Dataset with point residuals and goodness of fit
     
     """
-    if path_save is None & option_save:
+    if (path_save is None) & (option_save is True):
         msg = "Save path must be specified to save."
         raise ValueError(msg)
-    else:
-        if not os.path.isdir(dir_save):
-            msg = f"Save directory does not exist: {dir_save}"
-            #logger.error(msg)
-            raise NotADirectoryError(msg)
 
     # Open the observations file
     obs_ds = xr.open_dataset(path_obs) #space, time diminsions
     
     # Open the first IFS file
-    ifs_f72 = xr.open_dataset(IFS_PATHS[0]) #time, lat, lon dims
+    ifs_f72 = xr.open_dataset(path_ifs) #time, lat, lon dims
     
     #drop stations with all NA windspeed data
     has_data_mask = ~obs_ds['windspeed_10m'].isnull().all(dim='time')
@@ -92,7 +87,7 @@ def calc_met_gof(
         var1 = "ws_10",
         var2 = "obs_windspeed_10m")
     
-    if option_write:
+    if option_save:
         all_data_gof.to_netcdf(path_save)
     
     return(all_data_gof)
@@ -127,15 +122,10 @@ def filter_sufficient_data(
         Dataset filtered to sufficient observation stations
     
     """
-    if path_save is None & option_save:
+    if (path_save is None) & (option_save is True):
         msg = "Save path must be specified to save."
         raise ValueError(msg)
-    else:
-        if not os.path.isdir(dir_save):
-            msg = f"Save directory does not exist: {dir_save}"
-            #logger.error(msg)
-            raise NotADirectoryError(msg)
-    
+
     ds = xr.open_dataset(path_gof)
     
     # Fraction of valid (non-NaN) values per space
@@ -144,7 +134,7 @@ def filter_sufficient_data(
     # Mask space dimension
     ds_filtered = ds.where(valid_frac >= valid_thresh, drop=True)
 
-    if option_write:
+    if option_save:
         ds_filtered.to_netcdf(path_save)
     
     return(ds_filtered)    

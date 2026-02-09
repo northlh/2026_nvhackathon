@@ -115,7 +115,11 @@ class CoWyPointDataset(Dataset):
 
         # --- HRRR / IFS ---
         self.dsets_hrrr = {}
-        for fp in hrrr_fps:
+        # for fp in hrrr_fps:
+        #     ds = xr.open_dataset(fp, decode_cf=False)
+        for i, fp in enumerate(hrrr_fps):
+            if i % 100 == 0:
+                print(f"Loading file {i}/{len(hrrr_fps)}: {fp}")
             ds = xr.open_dataset(fp, decode_cf=False)
 
             # Some HRRR encodings include step attrs that break decode_cf
@@ -237,6 +241,7 @@ class CoWyPointDataset(Dataset):
 
         # caching
         self.cache_timestamp = None
+        self.cache_fp = None 
         self.cache_hrrr = None
         self.cache_madis = None
 
@@ -287,107 +292,136 @@ class CoWyPointDataset(Dataset):
         self.obs_lookup["_ord"] = self.obs_lookup.timestamp.map(order)
         self.obs_lookup = self.obs_lookup.sort_values("_ord").drop(columns="_ord").reset_index(drop=True)
 
-    def _get_cached(self, idt_madis, timestamp, fp):
-        """
-        Build (and cache) the stacked HRRR/IFS tensor for the given timestamp/file and the
-        MADIS observation array for the aligned time index.
+    # def _get_cached(self, idt_madis, timestamp, fp):
+    #     """
+    #     Build (and cache) the stacked HRRR/IFS tensor for the given timestamp/file and the
+    #     MADIS observation array for the aligned time index.
 
-        Robust against:
-          - variables with extra dims (time/step) -> slices first entry
-          - scalar/1D variables (e.g., init_z) -> broadcasts to 2D grid
-          - missing variables -> fills with 2D NaNs
-          - dims order differences -> transposes to grid dims
-        """
-        ds = self.dsets_hrrr[fp]
-        if self.cache_timestamp == timestamp:
+    #     Robust against:
+    #       - variables with extra dims (time/step) -> slices first entry
+    #       - scalar/1D variables (e.g., init_z) -> broadcasts to 2D grid
+    #       - missing variables -> fills with 2D NaNs
+    #       - dims order differences -> transposes to grid dims
+    #     """
+    #     ds = self.dsets_hrrr[fp]
+    #     if self.cache_timestamp == timestamp and self.cache_fp == fp:
+    #         return self.cache_hrrr, self.cache_madis
+
+    #     # --- Determine a reference 2D grid (dims + shape) ---
+    #     time_like = ("time", "valid_time", "forecast_time", "step", "lead_time", "lead_time_hrs")
+    #     ref = None
+    #     grid_dims = None
+    #     grid_shape = None
+
+    #     # Prefer a data_var with (latitude, longitude) or (y, x) after squeezing out time-like dims
+    #     for v in ds.data_vars:
+    #         a = ds[v]
+    #         for td in time_like:
+    #             if td in a.dims:
+    #                 a = a.isel({td: 0})
+    #         a = a.squeeze(drop=True)
+    #         if set(a.dims) >= {"latitude", "longitude"}:
+    #             a = a.transpose("latitude", "longitude")
+    #             ref = xr.zeros_like(a, dtype=np.float32)
+    #             grid_dims = ref.dims
+    #             grid_shape = ref.shape
+    #             break
+    #         if set(a.dims) >= {"y", "x"}:
+    #             a = a.transpose("y", "x")
+    #             ref = xr.zeros_like(a, dtype=np.float32)
+    #             grid_dims = ref.dims
+    #             grid_shape = ref.shape
+    #             break
+
+    #     # Fallback: construct grid from known sizes if coords are 1D
+    #     if ref is None:
+    #         if "latitude" in ds.sizes and "longitude" in ds.sizes:
+    #             grid_dims = ("latitude", "longitude")
+    #             grid_shape = (ds.sizes["latitude"], ds.sizes["longitude"])
+    #             ref = xr.DataArray(np.zeros(grid_shape, dtype=np.float32), dims=grid_dims)
+    #         elif "y" in ds.sizes and "x" in ds.sizes:
+    #             grid_dims = ("y", "x")
+    #             grid_shape = (ds.sizes["y"], ds.sizes["x"])
+    #             ref = xr.DataArray(np.zeros(grid_shape, dtype=np.float32), dims=grid_dims)
+    #         else:
+    #             raise ValueError("Could not infer a 2D horizontal grid from dataset variables or sizes.")
+
+    #     # --- Build robust stack across requested variables ---
+    #     stack_list = []
+    #     for v in self.vars_hrrr:
+    #         if v not in ds:
+    #             # Missing variable for this file -> fill with NaNs of grid shape
+    #             stack_list.append(np.full(grid_shape, np.nan, dtype=np.float32))
+    #             continue
+
+    #         arr = ds[v]
+    #         # Reduce time-like dims
+    #         for td in time_like:
+    #             if td in arr.dims:
+    #                 arr = arr.isel({td: 0})
+    #         arr = arr.squeeze(drop=True)
+
+    #         # Ensure a 2D grid-aligned DataArray
+    #         if set(grid_dims).issubset(set(arr.dims)):
+    #             # Reorder to match grid dims
+    #             try:
+    #                 arr = arr.transpose(*grid_dims)
+    #             except Exception:
+    #                 # Try broadcasting then transpose
+    #                 arr = arr.broadcast_like(ref).transpose(*grid_dims)
+    #         else:
+    #             # Scalar or 1D -> broadcast to grid
+    #             if not isinstance(arr, xr.DataArray):
+    #                 arr = xr.DataArray(arr)
+    #             arr = arr.broadcast_like(ref)
+    #             if tuple(arr.dims) != grid_dims:
+    #                 arr = arr.transpose(*grid_dims)
+
+    #         # Final enforcement of shape
+    #         if arr.shape != grid_shape:
+    #             arr = arr.broadcast_like(ref)
+    #             if tuple(arr.dims) != grid_dims:
+    #                 arr = arr.transpose(*grid_dims)
+
+    #         stack_list.append(arr.values.astype(np.float32))
+
+    #     self.cache_hrrr = np.dstack(stack_list).astype(np.float32)
+
+    #     # --- MADIS cache for the corresponding observation timestep ---
+    #     self.cache_madis = np.vstack(
+    #         [self.madis_arrays[v][idt_madis] for v in self.vars_madis]
+    #     ).T.astype(np.float32)
+
+    #     self.cache_timestamp = timestamp
+    #     self.cache_fp = fp
+    #     return self.cache_hrrr, self.cache_madis
+
+#simplified hoepfullly faster version without excess checks
+    def _get_cached(self, idt_madis, timestamp, fp):
+        if self.cache_timestamp == timestamp and self.cache_fp == fp:
             return self.cache_hrrr, self.cache_madis
 
-        # --- Determine a reference 2D grid (dims + shape) ---
-        time_like = ("time", "valid_time", "forecast_time", "step", "lead_time", "lead_time_hrs")
-        ref = None
-        grid_dims = None
-        grid_shape = None
+        ds = self.dsets_hrrr[fp]
+        grid_shape = self.shape_hrrr
 
-        # Prefer a data_var with (latitude, longitude) or (y, x) after squeezing out time-like dims
-        for v in ds.data_vars:
-            a = ds[v]
-            for td in time_like:
-                if td in a.dims:
-                    a = a.isel({td: 0})
-            a = a.squeeze(drop=True)
-            if set(a.dims) >= {"latitude", "longitude"}:
-                a = a.transpose("latitude", "longitude")
-                ref = xr.zeros_like(a, dtype=np.float32)
-                grid_dims = ref.dims
-                grid_shape = ref.shape
-                break
-            if set(a.dims) >= {"y", "x"}:
-                a = a.transpose("y", "x")
-                ref = xr.zeros_like(a, dtype=np.float32)
-                grid_dims = ref.dims
-                grid_shape = ref.shape
-                break
-
-        # Fallback: construct grid from known sizes if coords are 1D
-        if ref is None:
-            if "latitude" in ds.sizes and "longitude" in ds.sizes:
-                grid_dims = ("latitude", "longitude")
-                grid_shape = (ds.sizes["latitude"], ds.sizes["longitude"])
-                ref = xr.DataArray(np.zeros(grid_shape, dtype=np.float32), dims=grid_dims)
-            elif "y" in ds.sizes and "x" in ds.sizes:
-                grid_dims = ("y", "x")
-                grid_shape = (ds.sizes["y"], ds.sizes["x"])
-                ref = xr.DataArray(np.zeros(grid_shape, dtype=np.float32), dims=grid_dims)
-            else:
-                raise ValueError("Could not infer a 2D horizontal grid from dataset variables or sizes.")
-
-        # --- Build robust stack across requested variables ---
-        stack_list = []
+        stack = []
         for v in self.vars_hrrr:
             if v not in ds:
-                # Missing variable for this file -> fill with NaNs of grid shape
-                stack_list.append(np.full(grid_shape, np.nan, dtype=np.float32))
+                stack.append(np.full(grid_shape, np.nan, dtype=np.float32))
                 continue
+            arr = ds[v].values.squeeze()
+            if arr.ndim == 0:
+                arr = np.full(grid_shape, float(arr), dtype=np.float32)
+            stack.append(arr.astype(np.float32))
 
-            arr = ds[v]
-            # Reduce time-like dims
-            for td in time_like:
-                if td in arr.dims:
-                    arr = arr.isel({td: 0})
-            arr = arr.squeeze(drop=True)
+        self.cache_hrrr = np.dstack(stack).astype(np.float32)
 
-            # Ensure a 2D grid-aligned DataArray
-            if set(grid_dims).issubset(set(arr.dims)):
-                # Reorder to match grid dims
-                try:
-                    arr = arr.transpose(*grid_dims)
-                except Exception:
-                    # Try broadcasting then transpose
-                    arr = arr.broadcast_like(ref).transpose(*grid_dims)
-            else:
-                # Scalar or 1D -> broadcast to grid
-                if not isinstance(arr, xr.DataArray):
-                    arr = xr.DataArray(arr)
-                arr = arr.broadcast_like(ref)
-                if tuple(arr.dims) != grid_dims:
-                    arr = arr.transpose(*grid_dims)
-
-            # Final enforcement of shape
-            if arr.shape != grid_shape:
-                arr = arr.broadcast_like(ref)
-                if tuple(arr.dims) != grid_dims:
-                    arr = arr.transpose(*grid_dims)
-
-            stack_list.append(arr.values.astype(np.float32))
-
-        self.cache_hrrr = np.dstack(stack_list).astype(np.float32)
-
-        # --- MADIS cache for the corresponding observation timestep ---
         self.cache_madis = np.vstack(
             [self.madis_arrays[v][idt_madis] for v in self.vars_madis]
         ).T.astype(np.float32)
 
         self.cache_timestamp = timestamp
+        self.cache_fp = fp
         return self.cache_hrrr, self.cache_madis
 
     def __len__(self):

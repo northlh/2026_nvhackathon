@@ -18,25 +18,28 @@ paths:
 
   # These should be synced to $TMPDIR by prepare_data.py
   terrain_dir: /project/cowy-nvhackathon/cowy-wildfire/data/terrain_data/terrain_990m
-  ifs_dir: /project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs
+  ifs_dir: /lscratch/ifs/ #/project/cowy-nvhackathon/cowy-wildfire/data/nwp/ifs
 
   # Output root (Lightning logs, checkpoints, eval results)
-  output_root: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/lightning_logs_v1
-
+  # output_root: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/lightning_logs_v1
+  output_root: /gscratch/kylabazlen/full_test_2_9/prepare_data_out/lightning_logs_v1
   # Cached metadata
-  obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/obs_lookup.csv
+  # obs_lookup: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/obs_lookup.csv
+  obs_lookup: /gscratch/kylabazlen/full_test_2_9/prepare_data_out/obs_lookup.csv
 
   # Normalization
-  mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/mean_v1.npy
-  std_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/sd_v1.npy
+  # mean_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/mean_v1.npy
+  # std_file: /project/cowy-nvhackathon/cowy-wildfire/data/prepare_data_out/sd_v1.npy
+  mean_file: /gscratch/kylabazlen/full_test_2_9/prepare_data_out/mean_v1.npy
+  std_file: /gscratch/kylabazlen/full_test_2_9/prepare_data_out/sd_v1.npy
 
 
 # ============================================================
 # Data preparation & filtering
 # ============================================================
 data:
-  # Nearest-neighbor matching threshold (degrees)
-  dist_lim: 0.25
+  dist_lim: 0.25  # Nearest-neighbor matching threshold (degrees)
+  max_hrrr_files: null #read in n files from the forecast dir
 
   # Spatial blocking (checkerboard)
   spatial_block:
@@ -48,17 +51,16 @@ data:
   shuffle_timesteps: true
 
   # Class imbalance handling
-  balance_classes: true
+  balance_classes: false
   balance_thresholds: [5, 11]   # wind speed bins (m/s)
 
   # Data loader
-  num_workers: 8      
+  num_workers: 0      
   pin_memory: true
   persistent_workers: true
   drop_last: false # keep full batches
   
   
-
 
 # ============================================================
 # Feature engineering

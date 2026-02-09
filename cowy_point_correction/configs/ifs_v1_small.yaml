@@ -55,7 +55,7 @@ data:
   balance_thresholds: [5, 11]   # wind speed bins (m/s)
 
   # Data loader
-  num_workers: 7      
+  num_workers: 0      
   pin_memory: true
   persistent_workers: true
   drop_last: false # keep full batches

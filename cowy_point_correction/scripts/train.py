@@ -55,7 +55,7 @@ def train(cfg):
     # ---- Data module (FAST path; assumes prepare() already ran) ----
     print("Initializing datamodule...")
     dm = CoWyDataModule(cfg)
-    dm.setup("fit")
+    # dm.setup("fit")
 
     # ---- Load normalization statistics ----
     

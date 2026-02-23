@@ -186,8 +186,7 @@ class CoWyPointDataset(Dataset):
         self.ti_madis = pd.to_datetime(self.dset_madis.time.values)
 
         # --- TOPO ---
-        with xr.set_options(use_new_combine_kwarg_defaults=True):
-            self.dset_topo = xr.open_mfdataset(topo_fps, engine="netcdf4")
+        self.dset_topo = xr.open_mfdataset(topo_fps, engine="netcdf4")
         self.vars_topo = [v for v in self.dset_topo.data_vars if self.dset_topo[v].ndim == 2]
 
         lat1d_topo = self.dset_topo.latitude.values

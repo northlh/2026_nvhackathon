@@ -13,6 +13,8 @@ import argparse
 import glob
 import json
 import os
+import re
+import matplotlib.pyplot as plt
 from datetime import datetime
 
 import numpy as np
@@ -23,7 +25,7 @@ import lightning as L
 from cowy.training.datamodule import CoWyDataModule
 from cowy.models.point_model import PointCorrectionModel
 from cowy.evaluation.metrics import evaluate_bins, format_results_table
-from cowy.evaluation.plots import plot_train_test_map
+from cowy.evaluation.plots import plot_train_test_map, density_scatter, confusion_matrix, plot_confusion_matrix
 
 
 def _expand_env(s: str) -> str:
@@ -156,14 +158,59 @@ def main():
     print(joined)
 
     # Plot map (optional)
+    plot_dir = os.path.join(results_dir, "plots")
+    os.makedirs(plot_dir, exist_ok=True)
+
     if cfg.get("evaluation", {}).get("plots", {}).get("map", {}).get("enabled", True):
-        png = os.path.join(results_dir, "train_test_map.png")
+        png = os.path.join(plot_dir, "train_test_map.png")
         try:
             plot_train_test_map(dm.train_ds, dm.test_ds, output_png=png)
             print(f"Saved map: {png}")
         except Exception as e:
             print(f"Map plotting failed (skipping): {e}")
 
+    if cfg.get("evaluation", {}).get("plots", {}).get("scatter", {}).get("enabled", True):
+            try:
+                error = pred_test - obs_test
+                year = re.search(r'\d{4}', cfg["paths"]["madis"]).group()
+
+                fig, ax = plt.subplots(figsize=(7, 6))
+                ax = density_scatter(x=obs_test, y=pred_test)
+                ax.set_xlabel("Observed 10m Windspeed (m/s)")
+                ax.set_ylabel("Forecasted 10m Windspeed (m/s)")
+                ax.set_title(f"IFS f72-96 {year}")
+                plt.tight_layout()
+                png = os.path.join(plot_dir, "scatter.png")
+                plt.savefig(png, dpi=150, bbox_inches="tight")
+                print(f"Saved scatter: {png}")
+                plt.close()
+
+                fig, ax = plt.subplots(figsize=(7, 6))
+                ax = density_scatter(x=obs_test, y=error, one_to_one_line=False, trend_line=True, cmap="plasma")
+                ax.set_xlabel("Observed 10m Windspeed (m/s)")
+                ax.set_ylabel("Forecast Error (m/s)")
+                ax.set_title(f"IFS f72-96 {year} Error")
+                plt.tight_layout()
+                png = os.path.join(plot_dir, "scatter_error.png")
+                plt.savefig(png, dpi=150, bbox_inches="tight")
+                print(f"Saved scatter error: {png}")
+                plt.close()
+
+            except Exception as e:
+                print(f"Scatter plotting failed (skipping): {e}")
+
+    if cfg.get("evaluation", {}).get("plots", {}).get("confusion_matrix", {}).get("enabled", True):
+        try:
+            threshold = cfg["evaluation"].get("threshold", 15.0)
+            cm_df = confusion_matrix(obs_test, pred_test, threshold=threshold)
+            plot_confusion_matrix(cm_df, title=f"Confusion Matrix — threshold {threshold} m/s")
+            plt.tight_layout()
+            png = os.path.join(plot_dir, "confusion_matrix.png")
+            plt.savefig(png, dpi=150, bbox_inches="tight")
+            print(f"Saved confusion matrix: {png}")
+            plt.close()
+        except Exception as e:
+            print(f"Confusion matrix plotting failed (skipping): {e}")
 
 if __name__ == "__main__":
     main()

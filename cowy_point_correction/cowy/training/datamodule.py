@@ -209,74 +209,74 @@ def _balance_train_classes(train_ds, thresholds=[5, 11], seed: int = 42):
     return train_ds
 
 
-# ---------------------------
-# NEW: Per-split index remapping (Option A, robust by coords)
-# ---------------------------
+# # ---------------------------
+# # NEW: Per-split index remapping (Option A, robust by coords)
+# # ---------------------------
 
-def _remap_idx_obs_to_local_using_coords(split_ds: CoWyPointDataset, base_ds: CoWyPointDataset, split_name: str):
-    """
-    Remap split_ds.obs_lookup['idx_obs'] (global station ids) to the local, 0..N-1
-    station indices that align with split_ds.dset_madis (its actual station axis).
+# def _remap_idx_obs_to_local_using_coords(split_ds: CoWyPointDataset, base_ds: CoWyPointDataset, split_name: str):
+#     """
+#     Remap split_ds.obs_lookup['idx_obs'] (global station ids) to the local, 0..N-1
+#     station indices that align with split_ds.dset_madis (its actual station axis).
 
-    Use station coordinates (lat/lon) to build a global->local mapping.
-    """
-    df = split_ds.obs_lookup
-    if df.empty:
-        return
+#     Use station coordinates (lat/lon) to build a global->local mapping.
+#     """
+#     df = split_ds.obs_lookup
+#     if df.empty:
+#         return
 
-    # Station counts from coords (reliable)
-    n_local = int(len(split_ds.lat_obs))
-    n_global = int(len(base_ds.lat_obs))
+#     # Station counts from coords (reliable)
+#     n_local = int(len(split_ds.lat_obs))
+#     n_global = int(len(base_ds.lat_obs))
 
-    idx_raw = df["idx_obs"].to_numpy()
+#     idx_raw = df["idx_obs"].to_numpy()
 
-    # If sizes match and current idx_obs are already within bounds, skip
-    if n_local == n_global and (idx_raw.min() >= 0 and idx_raw.max() < n_local):
-        return
+#     # If sizes match and current idx_obs are already within bounds, skip
+#     if n_local == n_global and (idx_raw.min() >= 0 and idx_raw.max() < n_local):
+#         return
 
-    # Build KDTree on GLOBAL station coords (lat, lon)
-    global_coords = np.column_stack([base_ds.lat_obs, base_ds.lon_obs])   # [N_global, 2]
-    local_coords  = np.column_stack([split_ds.lat_obs, split_ds.lon_obs]) # [N_local, 2]
+#     # Build KDTree on GLOBAL station coords (lat, lon)
+#     global_coords = np.column_stack([base_ds.lat_obs, base_ds.lon_obs])   # [N_global, 2]
+#     local_coords  = np.column_stack([split_ds.lat_obs, split_ds.lon_obs]) # [N_local, 2]
 
-    tree = KDTree(global_coords)
-    dists, global_idx_for_local = tree.query(local_coords, k=1)
+#     tree = KDTree(global_coords)
+#     dists, global_idx_for_local = tree.query(local_coords, k=1)
 
-    # Optional: sanity—ensure matches are tight (degrees). If not, warn.
-    max_dist = float(np.max(dists)) if dists.size > 0 else 0.0
-    if max_dist > 1e-6:
-        warnings.warn(
-            f"[{split_name}] Max lat/lon mismatch when remapping obs indices: {max_dist:.3e} degrees",
-            RuntimeWarning,
-        )
+#     # Optional: sanity—ensure matches are tight (degrees). If not, warn.
+#     max_dist = float(np.max(dists)) if dists.size > 0 else 0.0
+#     if max_dist > 1e-6:
+#         warnings.warn(
+#             f"[{split_name}] Max lat/lon mismatch when remapping obs indices: {max_dist:.3e} degrees",
+#             RuntimeWarning,
+#         )
 
-    # Invert mapping: global -> local (global_idx_for_local[local] = global)
-    mapping = {int(g): int(l) for l, g in enumerate(global_idx_for_local)}
+#     # Invert mapping: global -> local (global_idx_for_local[local] = global)
+#     mapping = {int(g): int(l) for l, g in enumerate(global_idx_for_local)}
 
-    # Apply mapping; preserve original as 'idx_obs_global'
-    df["idx_obs_global"] = df["idx_obs"].astype(np.int64)
-    try:
-        df["idx_obs"] = df["idx_obs"].map(mapping).astype(np.int32)
-    except Exception:
-        # Fallback: drop rows with unmapped station ids (should be rare)
-        before = len(df)
-        df = df[df["idx_obs"].isin(mapping.keys())].copy()
-        after = len(df)
-        warnings.warn(
-            f"[{split_name}] Dropped {before - after} rows with unmapped global station ids.",
-            RuntimeWarning,
-        )
-        df["idx_obs"] = df["idx_obs"].map(mapping).astype(np.int32)
+#     # Apply mapping; preserve original as 'idx_obs_global'
+#     df["idx_obs_global"] = df["idx_obs"].astype(np.int64)
+#     try:
+#         df["idx_obs"] = df["idx_obs"].map(mapping).astype(np.int32)
+#     except Exception:
+#         # Fallback: drop rows with unmapped station ids (should be rare)
+#         before = len(df)
+#         df = df[df["idx_obs"].isin(mapping.keys())].copy()
+#         after = len(df)
+#         warnings.warn(
+#             f"[{split_name}] Dropped {before - after} rows with unmapped global station ids.",
+#             RuntimeWarning,
+#         )
+#         df["idx_obs"] = df["idx_obs"].map(mapping).astype(np.int32)
 
-    # Assign back (in case we replaced df)
-    split_ds.obs_lookup = df.reset_index(drop=True)
+#     # Assign back (in case we replaced df)
+#     split_ds.obs_lookup = df.reset_index(drop=True)
 
-    # Final guard: ensure within local bounds (using n_local from coords)
-    idx_new = split_ds.obs_lookup["idx_obs"].to_numpy()
-    if not (idx_new.min() >= 0 and idx_new.max() < n_local):
-        raise RuntimeError(
-            f"[{split_name}] Remap produced out-of-bounds station indices: "
-            f"min={idx_new.min()}, max={idx_new.max()}, allowed=[0,{n_local-1}]"
-        )
+#     # Final guard: ensure within local bounds (using n_local from coords)
+#     idx_new = split_ds.obs_lookup["idx_obs"].to_numpy()
+#     if not (idx_new.min() >= 0 and idx_new.max() < n_local):
+#         raise RuntimeError(
+#             f"[{split_name}] Remap produced out-of-bounds station indices: "
+#             f"min={idx_new.min()}, max={idx_new.max()}, allowed=[0,{n_local-1}]"
+#         )
 
 
 # ---------------------------
@@ -562,10 +562,10 @@ class CoWyDataModule(LightningDataModule):
 
             print(f"Train: {len(train_ds):,} rows | Val: {len(val_ds):,} rows (after key-based split)")
 
-        # --- Remap station indices per split to match each split's dset_madis (Option A) ---
-        _remap_idx_obs_to_local_using_coords(train_ds, base_ds, split_name="train")
-        _remap_idx_obs_to_local_using_coords(val_ds,   base_ds, split_name="val")
-        _remap_idx_obs_to_local_using_coords(test_ds,  base_ds, split_name="test")
+        # # --- Remap station indices per split to match each split's dset_madis (Option A) ---
+        # _remap_idx_obs_to_local_using_coords(train_ds, base_ds, split_name="train")
+        # _remap_idx_obs_to_local_using_coords(val_ds,   base_ds, split_name="val")
+        # _remap_idx_obs_to_local_using_coords(test_ds,  base_ds, split_name="test")
 
         # --- Optional class balancing on train split ---
         if data_cfg.get("balance_classes", False):

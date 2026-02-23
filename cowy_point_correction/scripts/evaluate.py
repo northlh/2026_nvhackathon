@@ -127,6 +127,31 @@ def main():
     np.save(os.path.join(results_dir, "obs_test.npy"),   obs_test)
     np.save(os.path.join(results_dir, "inputs_test.npy"), inputs_test)
 
+    # Save baseline forecast (ws_10) extracted from inputs_*
+    try:
+        hrrr_vars = list(dm.train_ds.vars_hrrr)
+        if "ws_10m" not in hrrr_vars:
+            raise KeyError(f"'ws_10m' not found in dataset vars_hrrr. Available: {hrrr_vars}")
+
+        ws_idx = hrrr_vars.index("ws_10m")
+        print(f"Baseline forecast feature: ws_10m at inputs column index {ws_idx}")
+
+        # (N,1) arrays to match pred/obs shapes
+        fcst_train = inputs_train[:, ws_idx:ws_idx + 1]
+        fcst_val   = inputs_val[:,   ws_idx:ws_idx + 1]
+        fcst_test  = inputs_test[:,  ws_idx:ws_idx + 1]
+
+        np.save(os.path.join(results_dir, "ws_forecast_train.npy"), fcst_train)
+        np.save(os.path.join(results_dir, "ws_forecast_val.npy"),   fcst_val)
+        np.save(os.path.join(results_dir, "ws_forecast_test.npy"),  fcst_test)
+
+        # Save metadata so you can reconstruct feature meaning later
+        with open(os.path.join(results_dir, "feature_index.json"), "w") as f:
+            json.dump({"ws_10m_index": ws_idx, "hrrr_vars": hrrr_vars}, f, indent=2)
+
+    except Exception as e:
+        print(f"Saving baseline forecast (ws_10m) failed (skipping): {e}")
+
     # Save obs_lookup splits
     dm.train_ds.obs_lookup.to_csv(os.path.join(results_dir, "train_obs_lookup.csv"), index=False)
     dm.val_ds.obs_lookup.to_csv(os.path.join(results_dir, "val_obs_lookup.csv"), index=False)
@@ -171,46 +196,86 @@ def main():
 
     if cfg.get("evaluation", {}).get("plots", {}).get("scatter", {}).get("enabled", True):
             try:
-                error = pred_test - obs_test
+                error_ml = pred_test - obs_test
+                error_bl = fcst_test - obs_test
+
                 year = re.search(r'\d{4}', cfg["paths"]["madis"]).group()
 
+                # baseline scatter
+                fig, ax = plt.subplots(figsize=(7, 6))
+                ax = density_scatter(x=obs_test, y=fcst_test)
+                ax.set_xlabel("Observed 10m Windspeed (m/s)")
+                ax.set_ylabel("IFS 10m Windspeed (m/s)")
+                ax.set_title(f"IFS f72-96 {year}")
+                plt.tight_layout()
+                png = os.path.join(plot_dir, "scatter_bl_test.png")
+                plt.savefig(png, dpi=150, bbox_inches="tight")
+                print(f"BL Saved scatter: {png}")
+                plt.close()
+
+                # ML scatter 
                 fig, ax = plt.subplots(figsize=(7, 6))
                 ax = density_scatter(x=obs_test, y=pred_test)
                 ax.set_xlabel("Observed 10m Windspeed (m/s)")
-                ax.set_ylabel("Forecasted 10m Windspeed (m/s)")
+                ax.set_ylabel("ML predicted 10m Windspeed (m/s)")
                 ax.set_title(f"IFS f72-96 {year}")
                 plt.tight_layout()
-                png = os.path.join(plot_dir, "scatter.png")
+                png = os.path.join(plot_dir, "scatter_ml_test.png")
                 plt.savefig(png, dpi=150, bbox_inches="tight")
-                print(f"Saved scatter: {png}")
+                print(f"Saved ML scatter: {png}")
                 plt.close()
 
+                # Baseline error scatter
                 fig, ax = plt.subplots(figsize=(7, 6))
-                ax = density_scatter(x=obs_test, y=error, one_to_one_line=False, trend_line=True, cmap="plasma")
+                ax = density_scatter(x=obs_test, y=error_bl, one_to_one_line=False, trend_line=True, cmap="plasma")
                 ax.set_xlabel("Observed 10m Windspeed (m/s)")
-                ax.set_ylabel("Forecast Error (m/s)")
+                ax.set_ylabel("Error (m/s)")
                 ax.set_title(f"IFS f72-96 {year} Error")
                 plt.tight_layout()
-                png = os.path.join(plot_dir, "scatter_error.png")
+                png = os.path.join(plot_dir, "scatter_error_bl_test.png")
                 plt.savefig(png, dpi=150, bbox_inches="tight")
-                print(f"Saved scatter error: {png}")
+                print(f"Saved BL scatter error: {png}")
+                plt.close()
+
+                #ML error scatter
+                fig, ax = plt.subplots(figsize=(7, 6))
+                ax = density_scatter(x=obs_test, y=error_ml, one_to_one_line=False, trend_line=True, cmap="plasma")
+                ax.set_xlabel("Observed 10m Windspeed (m/s)")
+                ax.set_ylabel("Error (m/s)")
+                ax.set_title(f"IFS f72-96 {year} Error")
+                plt.tight_layout()
+                png = os.path.join(plot_dir, "scatter_error_ml_test.png")
+                plt.savefig(png, dpi=150, bbox_inches="tight")
+                print(f"Saved ML scatter error: {png}")
                 plt.close()
 
             except Exception as e:
                 print(f"Scatter plotting failed (skipping): {e}")
 
     if cfg.get("evaluation", {}).get("plots", {}).get("confusion_matrix", {}).get("enabled", True):
-        try:
-            threshold = cfg["evaluation"].get("threshold", 15.0)
-            cm_df = confusion_matrix(obs_test, pred_test, threshold=threshold)
-            plot_confusion_matrix(cm_df, title=f"Confusion Matrix — threshold {threshold} m/s")
-            plt.tight_layout()
-            png = os.path.join(plot_dir, "confusion_matrix.png")
-            plt.savefig(png, dpi=150, bbox_inches="tight")
-            print(f"Saved confusion matrix: {png}")
-            plt.close()
-        except Exception as e:
-            print(f"Confusion matrix plotting failed (skipping): {e}")
+            try:
+                threshold = cfg["evaluation"].get("threshold", 15.0)
+
+                # ML confusion matrix
+                cm_df = confusion_matrix(obs_test, pred_test, threshold=threshold)
+                plot_confusion_matrix(cm_df, title=f"ML Confusion Matrix — threshold {threshold} m/s")
+                plt.tight_layout()
+                png = os.path.join(plot_dir, "confusion_matrix_ml_test.png")
+                plt.savefig(png, dpi=150, bbox_inches="tight")
+                print(f"Saved ML confusion matrix: {png}")
+                plt.close()
+
+                # Baseline confusion matrix
+                cm_df_bl = confusion_matrix(obs_test, fcst_test, threshold=threshold)
+                plot_confusion_matrix(cm_df_bl, title=f"Baseline Confusion Matrix — threshold {threshold} m/s")
+                plt.tight_layout()
+                png = os.path.join(plot_dir, "confusion_matrix_bl_test.png")
+                plt.savefig(png, dpi=150, bbox_inches="tight")
+                print(f"Saved baseline confusion matrix: {png}")
+                plt.close()
+
+            except Exception as e:
+                print(f"Confusion matrix plotting failed (skipping): {e}")
 
 if __name__ == "__main__":
     main()

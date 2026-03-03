@@ -10,11 +10,11 @@ experiment:
 
 
 # ============================================================
-# Paths (NO hard-coding in code)
+# Paths
 # ============================================================
 paths:
   # Raw datasets
-  madis: /projects/cowy/datasets/cowy_qc_madis/cowy_madis_metar_mesonet_2024.nc
+  madis: "/projects/cowy/datasets/cowy_qc_madis/cowy_madis_metar_mesonet_2024_transposed.nc"
 
   # These should be synced to $TMPDIR by prepare_data.py
   terrain_dir: /projects/cowy/datasets/terrain_data/terrain_990m
@@ -22,15 +22,16 @@ paths:
   ifs_dir: $TMPDIR/ifs #/scratch/kylabazlen/herbie/ifs
 
   # Output root (Lightning logs, checkpoints, eval results)
-  output_root: /scratch/kylabazlen/ml_test/prepare_data_out/lightning_logs_v1
+  output_root: /scratch/kylabazlen/ml_test/v1/runs
 
   # Cached metadata
-  obs_lookup: /scratch/kylabazlen/ml_test/prepare_data_out/obs_lookup.csv
+  obs_lookup: /scratch/kylabazlen/ml_test/v1/prepare_data/obs_lookup.csv
 
   # Normalization
-  mean_file: /scratch/kylabazlen/ml_test/prepare_data_out/mean_v1.npy
-  std_file: /scratch/kylabazlen/ml_test/prepare_data_out/sd_v1.npy
+  mean_file: /scratch/kylabazlen/ml_test/v1/prepare_data/mean_v1.npy
+  std_file: /scratch/kylabazlen/ml_test/v1/prepare_data/sd_v1.npy
 
+  dem: /projects/cowy/datasets/terrain_data/terrain_990m/conus_elev_reprojected_wgs84_cowy_990m.nc
 
 # ============================================================
 # Data preparation & filtering
@@ -53,11 +54,10 @@ data:
   balance_thresholds: [5, 11]   # wind speed bins (m/s)
 
   # Data loader
-  num_workers: 1      
+  num_workers: 0
   pin_memory: true
   persistent_workers: true
   drop_last: false # keep full batches
-  
   
 
 # ============================================================

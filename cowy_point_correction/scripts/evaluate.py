@@ -189,7 +189,11 @@ def main():
     if cfg.get("evaluation", {}).get("plots", {}).get("map", {}).get("enabled", True):
         png = os.path.join(plot_dir, "train_test_map.png")
         try:
-            plot_train_test_map(dm.train_ds, dm.test_ds, output_png=png)
+            ax = plot_train_test_map(dm.train_ds, dm.test_ds, dem_path=cfg["paths"].get("dem"))
+            ax.set_title("Training and Test Set Observations")
+            plt.tight_layout()
+            plt.savefig(png, dpi=200)
+            plt.close(ax.figure)
             print(f"Saved map: {png}")
         except Exception as e:
             print(f"Map plotting failed (skipping): {e}")

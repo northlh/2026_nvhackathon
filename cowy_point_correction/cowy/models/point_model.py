@@ -33,9 +33,18 @@ class PointCorrectionModel(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
-    def _loss(self, yhat, y):
-        return nn.functional.mse_loss(yhat, y)
-
+    # def _loss(self, yhat, y):
+    #     return nn.functional.mse_loss(yhat, y)
+    
+    def _loss(self, yhat, y, eps: float = 1e-6):
+        """Log(ws)-weighted MSE (weights derived from target windspeed)."""
+        yhat = yhat.float()
+        y = y.float()
+        se = (y - yhat) ** 2
+        w = 1.0 + torch.log1p(torch.clamp(y, min=0.0))
+        w = w / (w.mean().clamp_min(eps))
+        return (w * se).mean()
+    
     def training_step(self, batch, _):
         x, y = batch
         loss = self._loss(self(x), y)
@@ -49,10 +58,11 @@ class PointCorrectionModel(L.LightningModule):
         )
         return loss
 
-    def validation_step(self, batch, _):
-        x, y = batch
-        loss = self._loss(self(x), y)
-        self.log("validation_loss", loss, prog_bar=True)
+    # def validation_step(self, batch, _):
+    #     x, y = batch
+    #     loss = self._loss(self(x), y)
+    #     self.log("validation_loss", loss, prog_bar=True)
+        
     def validation_step(self, batch, _):
         x, y = batch
         loss = self._loss(self(x), y)
@@ -64,6 +74,8 @@ class PointCorrectionModel(L.LightningModule):
             prog_bar=True,
             sync_dist=True,
         )
+        return loss
+    
     def configure_optimizers(self):
         opt = AdamW(
             self.parameters(),
